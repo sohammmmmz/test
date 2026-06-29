@@ -43,10 +43,6 @@ floor_scale: 1.0          # multiply floor-plan coords by this when drawing the 
 sync_offsets: ""
 
 cameras:
-  - name: cam1
-    video: synced/cam1.mp4
-    homography: configs/H_cam1.npy
-    start_frame: 0
   - name: cam2
     video: synced/cam2.mp4
     homography: configs/H_cam2.npy

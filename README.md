@@ -47,7 +47,7 @@ python -m venv .venv
 .\.venv\Scripts\activate
 
 # STEP 1: PyTorch built for Blackwell (do this first, on its own)
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu129
+`pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu129`
 
 # STEP 2: everything else
 pip install -r requirements.txt
