@@ -99,14 +99,28 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
    local id so you can *watch* the self-healing), a live **On floor / Unique
    seen** counter, and a top-down floor map with dots per person.
 
-## ReID weights (OSNet now, CLIP-ReID optional)
+## ReID weights (vendored — no Google Drive needed)
 
-The POC uses `osnet_x1_0_msmt17.pt` because boxmot auto-downloads it reliably.
-For maximum appearance accuracy you can switch to **CLIP-ReID**, but its weight
-file is a >100 MB Google Drive file whose virus-scan page breaks `gdown`. To use
-it: download `clip_market1501.pt` manually from the Drive link printed in the
-error, drop it in the project root, then set both `tracker.reid_weights` and
-`reid.weights` back to `clip_market1501.pt` in `config.yaml`.
+boxmot normally pulls ReID weights from Google Drive, which is blocked on the
+corporate network. So the weights are **vendored in this repo** and selected in
+`config.yaml`. boxmot finds the file on disk and skips the download.
+
+| Weight | Size | Notes |
+|---|---|---|
+| `osnet_x1_0_msmt17.pt` | 11 MB (git) | baseline |
+| `osnet_ain_x1_0_msmt17.pt` | 17 MB (git) | **default** — adaptive instance norm, best small model for cross-camera |
+| `clip_market1501.pt` | 507 MB (**git LFS**) | strongest (~0.7–0.9 same-person sim), heaviest |
+
+To switch models, set **both** `tracker.reid_weights` and `reid.weights` in
+`config.yaml` to the same filename.
+
+CLIP-ReID is delivered via **Git LFS**. To get it you need git-lfs installed:
+```powershell
+git lfs install
+git pull              # downloads clip_market1501.pt from LFS
+```
+If `clip_market1501.pt` is only ~134 bytes after pull, it's still an LFS
+pointer — run `git lfs pull` to fetch the real file.
 
 ## Cross-camera matching doesn't depend on calibration
 
