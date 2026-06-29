@@ -21,7 +21,7 @@ Controls:
     , / .      active camera start -10 / +10 frames
     r          reset active camera offset to 0
     [ / ]      slower / faster playback
-    s          save offsets to configs/sync_offsets.json
+    s          save offsets AND export trimmed, aligned videos to synced/
     q          quit
 
 Usage:
@@ -92,11 +92,44 @@ def make_panel(frame, name, abs_idx, eff_start, active):
     return panel
 
 
+def export_synced(caps, paths, lengths, eff_starts, out_dir="synced"):
+    """Write trimmed, frame-aligned copies of every video into out_dir.
+
+    Each output starts at its camera's effective start frame and all outputs are
+    cut to the same common length, so frame index k means the same instant in
+    every file. Filenames match the source basenames.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    common_len = min(lengths[i] - eff_starts[i] for i in range(len(caps)))
+    if common_len <= 0:
+        print("Nothing to export: offsets leave no overlapping frames.")
+        return
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    for i, cap in enumerate(caps):
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        out_path = os.path.join(out_dir, os.path.basename(paths[i]))
+        writer = cv2.VideoWriter(out_path, fourcc, fps, (w, h))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, eff_starts[i])
+        for _ in range(common_len):
+            ok, frame = cap.read()
+            if not ok:
+                break
+            writer.write(frame)
+        writer.release()
+        print(f"  wrote {out_path}  ({common_len} frames @ {fps:.2f} fps, {w}x{h})")
+    print(f"Exported {len(caps)} synced videos to '{out_dir}/' "
+          f"(common length {common_len} frames).")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--videos", nargs="*", help="explicit video paths")
     ap.add_argument("--out", default="configs/sync_offsets.json")
+    ap.add_argument("--synced-dir", default="synced",
+                    help="folder to write the trimmed, aligned videos on save")
     args = ap.parse_args()
 
     names, paths, caps, lengths = load_videos(args)
@@ -197,6 +230,8 @@ def main():
             with open(args.out, "w") as f:
                 json.dump(out, f, indent=2)
             print(f"Saved sync offsets -> {args.out}\n{json.dumps(out, indent=2)}")
+            print(f"Exporting synced videos to '{args.synced_dir}/' ...")
+            export_synced(caps, paths, lengths, eff, args.synced_dir)
 
     for cap in caps:
         cap.release()

@@ -17,6 +17,7 @@ data/*.mkv
 data/*.png
 data/*.jpg
 out*.mp4
+synced/
 
 # Homography matrices are small/important -> keep them (do NOT ignore configs/*.npy)
 
