@@ -99,6 +99,15 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
    local id so you can *watch* the self-healing), a live **On floor / Unique
    seen** counter, and a top-down floor map with dots per person.
 
+## ReID weights (OSNet now, CLIP-ReID optional)
+
+The POC uses `osnet_x1_0_msmt17.pt` because boxmot auto-downloads it reliably.
+For maximum appearance accuracy you can switch to **CLIP-ReID**, but its weight
+file is a >100 MB Google Drive file whose virus-scan page breaks `gdown`. To use
+it: download `clip_market1501.pt` manually from the Drive link printed in the
+error, drop it in the project root, then set both `tracker.reid_weights` and
+`reid.weights` back to `clip_market1501.pt` in `config.yaml`.
+
 ## Tuning cheatsheet
 
 | Problem | Change |

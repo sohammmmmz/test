@@ -13,7 +13,7 @@
 # ----------------------------------------------------------------------------
 
 ultralytics>=8.4.0      # YOLO26 (also supports YOLO11 / YOLO12)
-boxmot==13.0.17         # PINNED: last line with the modular tracker API we use
+boxmot>=13.0.16,<14     # PINNED to 13.x: the modular tracker API we use
                         # (BotSort/BoostTrack/DeepOcSort classes + ReidAutoBackend).
                         # boxmot 17+ replaced these with a higher-level API that
                         # doesn't fit this pipeline. 13.0.17 needs torch>=2.2,<3

@@ -14,7 +14,9 @@ detector:
 
 tracker:
   type: botsort        # botsort | boosttrack | deepocsort  (all appearance-aware)
-  reid_weights: clip_market1501.pt   # strong CLIP-ReID embeddings
+  reid_weights: osnet_x1_0_msmt17.pt   # small, reliable auto-download; strong ReID
+                                       # (clip_market1501.pt is better but its >100MB
+                                       #  gdrive file breaks gdown -- see README)
   half: true
   # --- knobs that directly reduce in-stream ID switching ---
   track_buffer: 90         # frames a lost track survives before deletion (6s @15fps)
@@ -24,7 +26,7 @@ tracker:
   match_thresh: 0.80
 
 reid:
-  weights: clip_market1501.pt   # SAME family as tracker; used for global fusion
+  weights: osnet_x1_0_msmt17.pt   # SAME model as tracker; used for global fusion
   half: true
 
 fusion:
