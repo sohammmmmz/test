@@ -13,7 +13,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from boxmot.appearance.reid_auto_backend import ReidAutoBackend
+
+# BoxMOT has moved this class around across versions. Try the known locations
+# so a minor version bump doesn't break the import. We pin boxmot==13.0.17 in
+# requirements.txt (where the first path is correct), but stay defensive.
+try:                                                              # boxmot 13.x
+    from boxmot.appearance.reid.auto_backend import ReidAutoBackend
+except ModuleNotFoundError:
+    try:                                                          # boxmot 16.x
+        from boxmot.reid.core.auto_backend import ReidAutoBackend
+    except ModuleNotFoundError:                                   # boxmot <=12.x
+        from boxmot.appearance.reid_auto_backend import ReidAutoBackend
 
 
 class ReidEmbedder:

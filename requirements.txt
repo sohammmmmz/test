@@ -13,7 +13,11 @@
 # ----------------------------------------------------------------------------
 
 ultralytics>=8.4.0      # YOLO26 (also supports YOLO11 / YOLO12)
-boxmot>=12.0.0          # BoT-SORT / BoostTrack / Deep OC-SORT + CLIP-ReID weights
+boxmot==13.0.17         # PINNED: last line with the modular tracker API we use
+                        # (BotSort/BoostTrack/DeepOcSort classes + ReidAutoBackend).
+                        # boxmot 17+ replaced these with a higher-level API that
+                        # doesn't fit this pipeline. 13.0.17 needs torch>=2.2,<3
+                        # (your cu129 torch is fine) and does NOT pull ultralytics.
 opencv-python>=4.10.0
 numpy>=1.26
 scipy>=1.13
