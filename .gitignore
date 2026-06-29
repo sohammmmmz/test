@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Model weights (downloaded on first run)
+*.pt
+*.onnx
+*.engine
+
+# Data & outputs
+data/*.mp4
+data/*.avi
+data/*.mov
+data/*.mkv
+data/*.png
+data/*.jpg
+out*.mp4
+
+# Homography matrices are small/important -> keep them (do NOT ignore configs/*.npy)
+
+# Editor
+.idea/
+.vscode/

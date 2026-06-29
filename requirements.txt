@@ -1,0 +1,21 @@
+# ----------------------------------------------------------------------------
+# Install order matters on an RTX 5090 (Blackwell, sm_120) with CUDA 12.9.
+# STEP 1 (do this FIRST, separately) -- PyTorch with CUDA 12.9 wheels:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu129
+# Stock PyTorch wheels only go up to sm_90 and will fail on the 5090 with
+#   "no kernel image is available for execution on the device".
+# (cu128 also works -- the wheel bundles its own CUDA runtime -- but cu129
+#  matches your toolkit exactly.)
+# STEP 2 -- then install the rest:
+#   pip install -r requirements.txt
+# YOLO26 needs a recent Ultralytics: run `pip install -U ultralytics` if the
+# yolo26x.pt weights fail to load.
+# ----------------------------------------------------------------------------
+
+ultralytics>=8.4.0      # YOLO26 (also supports YOLO11 / YOLO12)
+boxmot>=12.0.0          # BoT-SORT / BoostTrack / Deep OC-SORT + CLIP-ReID weights
+opencv-python>=4.10.0
+numpy>=1.26
+scipy>=1.13
+pyyaml>=6.0
+lapx>=0.5.11            # fast linear assignment used by the trackers

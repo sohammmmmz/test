@@ -1,0 +1,52 @@
+# ------------------------------------------------------------------ #
+# Multi-camera person tracking POC config
+# ------------------------------------------------------------------ #
+device: cuda:0
+fps: 15            # common timeline fps used to align the 3 synced videos
+
+detector:
+  weights: yolo26x.pt   # latest (Sept 2025), NMS-free end-to-end -> cleaner boxes
+                        # for the tracker. Use yolo26l.pt to trade accuracy/speed.
+  conf: 0.30            # lower => fewer missed people (fewer ID drops), more FPs
+  iou: 0.50            # ignored by YOLO26 (NMS-free); kept for older-model fallback
+  imgsz: 1280          # higher res helps small/distant people. try 1536 on 5090.
+  half: true           # FP16 on Blackwell
+
+tracker:
+  type: botsort        # botsort | boosttrack | deepocsort  (all appearance-aware)
+  reid_weights: clip_market1501.pt   # strong CLIP-ReID embeddings
+  half: true
+  # --- knobs that directly reduce in-stream ID switching ---
+  track_buffer: 90         # frames a lost track survives before deletion (6s @15fps)
+  track_high_thresh: 0.50
+  track_low_thresh: 0.10   # ByteTrack-style: recover low-confidence detections
+  new_track_thresh: 0.60   # higher => slower to spawn a new id (avoids fragmenting)
+  match_thresh: 0.80
+
+reid:
+  weights: clip_market1501.pt   # SAME family as tracker; used for global fusion
+  half: true
+
+fusion:
+  sim_threshold: 0.45     # min cosine similarity to allow an appearance-only match
+  max_floor_dist: 1.2     # floor units (set per your floor-plan scale; see README)
+  w_appearance: 0.6       # appearance vs geometry weighting in the match cost
+  gallery_size: 50        # embeddings kept per global identity
+  max_age: 5.0            # seconds before an unseen global id is retired
+
+floor_plan: data/floorplan.png
+floor_scale: 1.0          # multiply floor-plan coords by this when drawing the map
+
+cameras:
+  - name: cam1
+    video: data/cam1.mp4
+    homography: configs/H_cam1.npy
+    start_frame: 0        # bump if this camera starts a few frames late
+  - name: cam2
+    video: data/cam2.mp4
+    homography: configs/H_cam2.npy
+    start_frame: 0
+  - name: cam3
+    video: data/cam3.mp4
+    homography: configs/H_cam3.npy
+    start_frame: 0
