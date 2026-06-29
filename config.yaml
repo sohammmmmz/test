@@ -37,19 +37,21 @@ fusion:
 floor_plan: data/floorplan.png
 floor_scale: 1.0          # multiply floor-plan coords by this when drawing the map
 
-# Written by sync_videos.py; overrides each camera's start_frame below if present.
-sync_offsets: configs/sync_offsets.json
+# sync_videos.py exported pre-aligned clips into synced/, so we read those
+# directly and do NOT re-apply offsets (leave this empty). Point back at
+# data/ + configs/sync_offsets.json instead if you'd rather offset at runtime.
+sync_offsets: ""
 
 cameras:
   - name: cam1
-    video: data/cam1.mp4
+    video: synced/cam1.mp4
     homography: configs/H_cam1.npy
-    start_frame: 0        # bump if this camera starts a few frames late
+    start_frame: 0
   - name: cam2
-    video: data/cam2.mp4
+    video: synced/cam2.mp4
     homography: configs/H_cam2.npy
     start_frame: 0
   - name: cam3
-    video: data/cam3.mp4
+    video: synced/cam3.mp4
     homography: configs/H_cam3.npy
     start_frame: 0

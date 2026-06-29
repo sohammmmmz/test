@@ -60,7 +60,7 @@ def main():
     # --- sync offsets from sync_videos.py override config start_frame ---
     sync_path = cfg.get("sync_offsets", "configs/sync_offsets.json")
     sync_offsets = {}
-    if os.path.exists(sync_path):
+    if sync_path and os.path.exists(sync_path):
         with open(sync_path) as f:
             sync_offsets = json.load(f)
         print(f"Loaded sync offsets from {sync_path}: {sync_offsets}")
