@@ -37,6 +37,9 @@ fusion:
 floor_plan: data/floorplan.png
 floor_scale: 1.0          # multiply floor-plan coords by this when drawing the map
 
+# Written by sync_videos.py; overrides each camera's start_frame below if present.
+sync_offsets: configs/sync_offsets.json
+
 cameras:
   - name: cam1
     video: data/cam1.mp4

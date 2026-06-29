@@ -64,7 +64,18 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 1. **Drop your data in `data/`**: `cam1.mp4`, `cam2.mp4`, `cam3.mp4`, and your
    `floorplan.png`.
 
-2. **Calibrate each camera to the floor plan** (once per camera):
+2. **Sync the three videos** (handles frame-start delays between cameras):
+   ```powershell
+   python sync_videos.py --config config.yaml
+   ```
+   The three cameras play in one window on a shared timeline. Find a moment
+   visible in all three (a person crossing a spot, a door, a clap), then select
+   each camera (`1`/`2`/`3`) and nudge its start with `j`/`l` (±1) and `,`/`.`
+   (±10) until that moment lines up in every panel. Press `s` to save. Offsets
+   go to `configs/sync_offsets.json` and `run_poc.py` picks them up
+   automatically. (Full controls are printed in the window footer.)
+
+3. **Calibrate each camera to the floor plan** (once per camera):
    ```powershell
    python calibrate_homography.py --camera data/cam1.mp4 --floor data/floorplan.png --out configs/H_cam1.npy
    python calibrate_homography.py --camera data/cam2.mp4 --floor data/floorplan.png --out configs/H_cam2.npy
@@ -74,12 +85,12 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
    floor plan (floor corners, pillar bases, floor markings). Spread them out.
    `s` saves, `u` undoes, `q` quits.
 
-3. **Set `fusion.max_floor_dist`** to your floor-plan units. If 1 floor-plan
+4. **Set `fusion.max_floor_dist`** to your floor-plan units. If 1 floor-plan
    pixel ≈ 1 cm, a value of ~120 means "120 cm" gating. If your plan is metric,
    use meters. This controls how close two detections must be to be considered
    the same person.
 
-4. **Run:**
+5. **Run:**
    ```powershell
    python run_poc.py --config config.yaml --show           # live windows
    python run_poc.py --config config.yaml --save out.mp4    # render to file
@@ -102,6 +113,7 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 
 ```
 run_poc.py               main pipeline (detect -> track -> embed -> fuse -> count)
+sync_videos.py           interactive 3-camera frame-sync (writes sync_offsets.json)
 calibrate_homography.py  interactive camera->floor calibration
 config.yaml              all knobs
 src/detector.py          YOLO person detector

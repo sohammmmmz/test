@@ -20,6 +20,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import time
 
 import cv2
@@ -55,16 +57,25 @@ def main():
     embedder = ReidEmbedder(weights=cfg["reid"]["weights"], device=device,
                             half=cfg["reid"].get("half", True))
 
+    # --- sync offsets from sync_videos.py override config start_frame ---
+    sync_path = cfg.get("sync_offsets", "configs/sync_offsets.json")
+    sync_offsets = {}
+    if os.path.exists(sync_path):
+        with open(sync_path) as f:
+            sync_offsets = json.load(f)
+        print(f"Loaded sync offsets from {sync_path}: {sync_offsets}")
+
     # --- per-camera state ---
     cams = []
     for c in cfg["cameras"]:
         tcfg = dict(cfg["tracker"]); tcfg["device"] = device
+        start_frame = int(sync_offsets.get(c["name"], c.get("start_frame", 0)))
         cams.append({
             "name": c["name"],
             "cap": cv2.VideoCapture(c["video"]),
             "H": load_homography(c["homography"]),
             "tracker": CameraTracker(c["name"], tcfg),
-            "start_frame": c.get("start_frame", 0),
+            "start_frame": start_frame,
         })
         # seek to start offset for time alignment
         for _ in range(cams[-1]["start_frame"]):
