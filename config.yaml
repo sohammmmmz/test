@@ -14,9 +14,10 @@ detector:
 
 tracker:
   type: botsort        # botsort | boosttrack | deepocsort  (all appearance-aware)
-  reid_weights: osnet_x1_0_msmt17.pt   # small, reliable auto-download; strong ReID
-                                       # (clip_market1501.pt is better but its >100MB
-                                       #  gdrive file breaks gdown -- see README)
+  reid_weights: osnet_ain_x1_0_msmt17.pt   # OSNet-AIN: adaptive instance norm,
+                                           # built for cross-camera generalization
+                                           # (vendored in repo; bigger margin than
+                                           #  plain osnet for same-person-across-cams)
   half: true
   # --- knobs that directly reduce in-stream ID switching ---
   track_buffer: 90         # frames a lost track survives before deletion (6s @15fps)
@@ -26,7 +27,7 @@ tracker:
   match_thresh: 0.80
 
 reid:
-  weights: osnet_x1_0_msmt17.pt   # SAME model as tracker; used for global fusion
+  weights: osnet_ain_x1_0_msmt17.pt   # SAME model as tracker; used for global fusion
   half: true
 
 fusion:
