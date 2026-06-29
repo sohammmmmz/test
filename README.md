@@ -108,6 +108,30 @@ it: download `clip_market1501.pt` manually from the Drive link printed in the
 error, drop it in the project root, then set both `tracker.reid_weights` and
 `reid.weights` back to `clip_market1501.pt` in `config.yaml`.
 
+## Cross-camera matching doesn't depend on calibration
+
+By default `fusion.use_geometry: false` — the global identity layer matches
+people across cameras using **appearance only** (OSNet embeddings), so a bad or
+missing homography can't break cross-camera IDs. Floor positions are only used
+as a *soft tie-breaker* when you explicitly set `use_geometry: true` (do that
+only after you've verified calibration is good — geometry can then disambiguate
+two people who happen to look alike).
+
+### Tuning the appearance threshold — `reid_tuner.py`
+
+The one knob that matters for appearance matching is `fusion.sim_threshold`.
+Tune it on YOUR footage:
+
+```powershell
+python reid_tuner.py --config config.yaml
+```
+
+It runs both cameras, colors the same person identically across views using
+appearance only, and shows a live **cam-vs-cam cosine-similarity matrix**. Use
+`[` / `]` to move the threshold until same-person pairs are green and different
+people are not, then copy that value into `config.yaml` → `fusion.sim_threshold`
+and run `run_poc.py`.
+
 ## Tuning cheatsheet
 
 | Problem | Change |
@@ -123,6 +147,7 @@ error, drop it in the project root, then set both `tracker.reid_weights` and
 ```
 run_poc.py               main pipeline (detect -> track -> embed -> fuse -> count)
 sync_videos.py           interactive 3-camera frame-sync (writes sync_offsets.json)
+reid_tuner.py            appearance-only cross-camera matcher + sim-threshold tuner
 calibrate_homography.py  interactive camera->floor calibration
 config.yaml              all knobs
 src/detector.py          YOLO person detector

@@ -30,12 +30,17 @@ reid:
   half: true
 
 fusion:
-  sim_threshold: 0.45     # min cosine similarity to allow an appearance-only match
-  max_floor_dist: 100     # floor-plan pixels. Scale: 1 m = 100 px, so this = 1.0 m
-                          # (bump to ~120-150 if one person splits into two ids)
-  w_appearance: 0.6       # appearance vs geometry weighting in the match cost
+  use_geometry: false     # FALSE = match purely on appearance (no homography).
+                          # Keep false until calibration is verified good, then set
+                          # true to let floor position break ties between look-alikes.
+  sim_threshold: 0.45     # min cosine similarity to call two crops the same person.
+                          # Use reid_tuner.py to pick this for YOUR footage.
+  geo_weight: 0.3         # how hard geometry nudges the cost (only when use_geometry)
+  max_floor_dist: 100     # floor-plan pixels for the geometry tie-breaker (1 m = 100 px)
+  w_appearance: 0.6       # (legacy weight, kept for compatibility)
   gallery_size: 50        # embeddings kept per global identity
   max_age: 5.0            # seconds before an unseen global id is retired
+  min_hits: 3             # confirmations before a person is counted
 
 floor_plan: data/floorplan.png
 floor_scale: 1.0          # multiply floor-plan coords by this when drawing the map

@@ -57,16 +57,22 @@ class GlobalTrack:
 class GlobalIdentityManager:
     def __init__(self,
                  sim_threshold: float = 0.45,     # min cosine sim to allow an appearance match
-                 max_floor_dist: float = 1.2,     # floor units (e.g. meters) for geometric gating
+                 max_floor_dist: float = 1.2,     # floor units for the geometry tie-breaker
                  w_appearance: float = 0.6,        # cost weight: appearance vs geometry
+                 use_geometry: bool = False,       # if False: pure appearance (no homography)
+                 geo_weight: float = 0.3,          # how much geometry nudges the cost (soft)
                  gallery_size: int = 50,
-                 max_age: float = 5.0):            # seconds before a global id is retired
+                 max_age: float = 5.0,             # seconds before a global id is retired
+                 min_hits: int = 3):               # confirmations before counting an id
         self.sim_threshold = sim_threshold
         self.max_floor_dist = max_floor_dist
         self.w_app = w_appearance
         self.w_geo = 1.0 - w_appearance
+        self.use_geometry = use_geometry
+        self.geo_weight = geo_weight
         self.gallery_size = gallery_size
         self.max_age = max_age
+        self.min_hits = min_hits
 
         self.tracks: dict[int, GlobalTrack] = {}
         self._next_gid = 1
@@ -116,15 +122,19 @@ class GlobalIdentityManager:
                     if gid in claimed_by_cam.get(obs.cam, set()):
                         continue
                     sim = float(obs.embedding @ tr.mean_embedding())
-                    geo = float(np.linalg.norm(obs.floor_xy - tr.floor_xy))
-                    # gating: reject implausible matches outright
-                    if geo > self.max_floor_dist and sim < self.sim_threshold:
+
+                    # APPEARANCE IS THE GATE. A pair may only merge if it looks
+                    # alike enough. Geometry never vetoes a strong appearance
+                    # match -- it only breaks ties between similar candidates.
+                    if sim < self.sim_threshold:
                         continue
-                    if geo > 2.0 * self.max_floor_dist:
-                        continue  # never merge people who are clearly far apart
-                    app_cost = 1.0 - sim
-                    geo_cost = min(geo / self.max_floor_dist, 1.0)
-                    cost[i, j] = self.w_app * app_cost + self.w_geo * geo_cost
+
+                    c = 1.0 - sim
+                    if self.use_geometry:
+                        geo = float(np.linalg.norm(obs.floor_xy - tr.floor_xy))
+                        geo_cost = min(geo / self.max_floor_dist, 1.0)  # capped: soft, not a veto
+                        c += self.geo_weight * geo_cost
+                    cost[i, j] = c
 
             rows, cols = linear_sum_assignment(cost)
             matched_rows = set()
@@ -182,10 +192,11 @@ class GlobalIdentityManager:
             del self.tracks[gid]
 
     # ------------------------------------------------------------------ #
-    def active_count(self, t: float, min_hits: int = 3) -> int:
+    def active_count(self, t: float, min_hits: int = None) -> int:
         """Number of distinct people currently on the floor."""
+        mh = self.min_hits if min_hits is None else min_hits
         return sum(1 for tr in self.tracks.values()
-                   if tr.hits >= min_hits and t - tr.last_seen_t <= self.max_age)
+                   if tr.hits >= mh and t - tr.last_seen_t <= self.max_age)
 
     def total_unique(self, min_hits: int = 3) -> int:
         """High-water mark of distinct identities ever confirmed."""
