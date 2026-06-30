@@ -81,7 +81,13 @@ def main():
         for _ in range(cams[-1]["start_frame"]):
             cams[-1]["cap"].read()
 
-    fusion = GlobalIdentityManager(**cfg.get("fusion", {}))
+    # --- build fusion: geometry thresholds are given in METERS and converted to
+    #     floor-plan pixels using the plan's measured scale (px per metre) ---
+    fcfg = dict(cfg.get("fusion", {}))
+    px_per_m = float(cfg.get("floor_px_per_meter", 115.5))
+    if "max_floor_dist_m" in fcfg:
+        fcfg["max_floor_dist"] = fcfg.pop("max_floor_dist_m") * px_per_m
+    fusion = GlobalIdentityManager(**fcfg)
 
     floor_img = None
     if cfg.get("floor_plan"):

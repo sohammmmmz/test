@@ -15,11 +15,17 @@ are green and different-person pairs are not -- then copy that value into
 config.yaml as fusion.sim_threshold.
 
 Controls:
+    'thr x100' slider   drag to set the match threshold (works even if the
+                        window loses focus / key presses get dropped)
     SPACE   play / pause
     a / d   step one frame back / forward (when paused)
-    [ / ]   lower / raise the match threshold (resets IDs so you see the effect)
+    [ / ]   lower / raise the match threshold (also moves the slider)
     r       reset global IDs
     q       quit
+
+Note on the keys: OpenCV only receives key presses while the image window has
+focus, and during heavy per-frame inference the capture window is tiny, so key
+presses are easily missed. The slider does not have that problem -- use it.
 
 Usage:
     python reid_tuner.py --config config.yaml
@@ -110,11 +116,22 @@ def main():
 
     win = "reid tuner (appearance only)"
     cv2.namedWindow(win)
+    # Threshold slider -- robust to focus/timing issues that drop key presses.
+    # Drag it any time; the keys [ and ] also work when the window has focus.
+    cv2.createTrackbar("thr x100", win, int(round(threshold * 100)), 95,
+                       lambda v: None)
     playing = True
     frame_idx = 0
     last_frames = None
 
     while True:
+        # poll the threshold slider (works even when key presses are missed)
+        tb = cv2.getTrackbarPos("thr x100", win) / 100.0
+        tb = max(0.05, tb)
+        if abs(tb - threshold) > 1e-6:
+            threshold = tb
+            fusion = new_manager(threshold)
+
         if playing or last_frames is None:
             frames = []
             ok_all = True
@@ -193,7 +210,7 @@ def main():
                                   cams_row.shape[1], 260)
         status = np.full((40, cams_row.shape[1], 3), 20, np.uint8)
         cv2.putText(status,
-                    f"threshold={threshold:.2f}  [ lower  ] raise  | "
+                    f"threshold={threshold:.2f}  (drag 'thr x100' slider, or [ ])  | "
                     f"{'PLAYING' if playing else 'PAUSED'}  | SPACE a/d r q",
                     (10, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         canvas = np.vstack([cams_row, matrix, status])
@@ -206,9 +223,11 @@ def main():
             playing = not playing
         elif key == ord("]"):
             threshold = min(0.95, round(threshold + 0.02, 2))
+            cv2.setTrackbarPos("thr x100", win, int(round(threshold * 100)))
             fusion = new_manager(threshold)
         elif key == ord("["):
             threshold = max(0.05, round(threshold - 0.02, 2))
+            cv2.setTrackbarPos("thr x100", win, int(round(threshold * 100)))
             fusion = new_manager(threshold)
         elif key == ord("r"):
             fusion = new_manager(threshold)

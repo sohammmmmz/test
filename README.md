@@ -77,9 +77,8 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 
 3. **Calibrate each camera to the floor plan** (once per camera):
    ```powershell
-   python calibrate_homography.py --camera data/cam1.mp4 --floor data/floorplan.png --out configs/H_cam1.npy
-   python calibrate_homography.py --camera data/cam2.mp4 --floor data/floorplan.png --out configs/H_cam2.npy
-   python calibrate_homography.py --camera data/cam3.mp4 --floor data/floorplan.png --out configs/H_cam3.npy
+   python calibrate_homography.py --camera synced/cam2.mp4 --floor floorplan.png --out configs/H_cam2.npy
+   python calibrate_homography.py --camera synced/cam3.mp4 --floor floorplan.png --out configs/H_cam3.npy
    ```
    Click **≥4 ground points** that you can identify in both the camera and the
    floor plan (floor corners, pillar bases, floor markings). Spread them out.

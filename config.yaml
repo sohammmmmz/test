@@ -37,14 +37,19 @@ fusion:
   sim_threshold: 0.45     # min cosine similarity to call two crops the same person.
                           # Use reid_tuner.py to pick this for YOUR footage.
   geo_weight: 0.3         # how hard geometry nudges the cost (only when use_geometry)
-  max_floor_dist: 100     # floor-plan pixels for the geometry tie-breaker (1 m = 100 px)
+  max_floor_dist_m: 1.0   # METERS: how close two detections must be to be the same
+                          # person. Converted to floor-plan px via floor_px_per_meter.
   w_appearance: 0.6       # (legacy weight, kept for compatibility)
   gallery_size: 50        # embeddings kept per global identity
   max_age: 5.0            # seconds before an unseen global id is retired
   min_hits: 3             # confirmations before a person is counted
 
-floor_plan: data/floorplan.png
+floor_plan: floorplan.png
 floor_scale: 1.0          # multiply floor-plan coords by this when drawing the map
+# Measured from floorplan.png: floor is 9.834 m x 8.83 m and spans ~1136 x 1020 px,
+# i.e. ~115.5 px/m. (The drawing's nominal "1 px = 0.01 m" is the design scale, but
+# the exported PNG is rendered larger, so we use the measured value here.)
+floor_px_per_meter: 115.5
 
 # sync_videos.py exported pre-aligned clips into synced/, so we read those
 # directly and do NOT re-apply offsets (leave this empty). Point back at
