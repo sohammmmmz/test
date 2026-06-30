@@ -75,7 +75,22 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
    go to `configs/sync_offsets.json` and `run_poc.py` picks them up
    automatically. (Full controls are printed in the window footer.)
 
-3. **Calibrate each camera to the floor plan** (once per camera):
+3. **Calibrate geometry** — two options:
+
+   **(A) Recommended: track-based, from walking people** (`geometry_reference: camera`).
+   Far more accurate than clicking floor corners. You pair the same person across
+   the two cameras and the tool harvests foot-point correspondences as they walk,
+   then fits a `cam2->cam3` homography with RANSAC.
+   ```powershell
+   python calibrate_from_tracks.py --config config.yaml
+   ```
+   Click the same person in the cam2 panel then the cam3 panel to pair them, let
+   them walk the overlap area (pair a few different people for coverage), press
+   `f` to fit (aim for ≥15 points and reproj error < ~3 px), then `s` to save.
+   This writes `configs/H_cam2.npy` (cam2→cam3) and `configs/H_cam3.npy` (identity).
+   Keep `geometry_reference: camera` in `config.yaml`.
+
+   **(B) Floor-plan clicking** (`geometry_reference: floorplan`) — once per camera:
    ```powershell
    python calibrate_homography.py --camera synced/cam2.mp4 --floor floorplan.png --out configs/H_cam2.npy
    python calibrate_homography.py --camera synced/cam3.mp4 --floor floorplan.png --out configs/H_cam3.npy
@@ -161,7 +176,8 @@ and run `run_poc.py`.
 run_poc.py               main pipeline (detect -> track -> embed -> fuse -> count)
 sync_videos.py           interactive 3-camera frame-sync (writes sync_offsets.json)
 reid_tuner.py            appearance-only cross-camera matcher + sim-threshold tuner
-calibrate_homography.py  interactive camera->floor calibration
+calibrate_from_tracks.py track-based cam->cam calibration from walking people (accurate)
+calibrate_homography.py  interactive camera->floor calibration (manual clicking)
 config.yaml              all knobs
 src/detector.py          YOLO person detector
 src/camera_tracker.py    BoxMOT per-camera tracker (local ids)

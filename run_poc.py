@@ -81,16 +81,25 @@ def main():
         for _ in range(cams[-1]["start_frame"]):
             cams[-1]["cap"].read()
 
-    # --- build fusion: geometry thresholds are given in METERS and converted to
-    #     floor-plan pixels using the plan's measured scale (px per metre) ---
+    # --- build fusion. Geometry can live in two reference frames: ---
+    #   floorplan: each camera->floor-plan; threshold in METERS (x px/metre)
+    #   camera:    each camera->reference camera (from calibrate_from_tracks.py);
+    #              threshold in reference-camera PIXELS
     fcfg = dict(cfg.get("fusion", {}))
-    px_per_m = float(cfg.get("floor_px_per_meter", 115.5))
-    if "max_floor_dist_m" in fcfg:
-        fcfg["max_floor_dist"] = fcfg.pop("max_floor_dist_m") * px_per_m
+    geom_ref = cfg.get("geometry_reference", "floorplan")
+    if geom_ref == "camera":
+        if "max_floor_dist_px" in fcfg:
+            fcfg["max_floor_dist"] = fcfg.pop("max_floor_dist_px")
+        fcfg.pop("max_floor_dist_m", None)
+    else:
+        px_per_m = float(cfg.get("floor_px_per_meter", 115.5))
+        if "max_floor_dist_m" in fcfg:
+            fcfg["max_floor_dist"] = fcfg.pop("max_floor_dist_m") * px_per_m
+        fcfg.pop("max_floor_dist_px", None)
     fusion = GlobalIdentityManager(**fcfg)
 
     floor_img = None
-    if cfg.get("floor_plan"):
+    if cfg.get("floor_plan") and geom_ref == "floorplan":
         floor_img = cv2.imread(cfg["floor_plan"])
     floor_scale = float(cfg.get("floor_scale", 1.0))
 
