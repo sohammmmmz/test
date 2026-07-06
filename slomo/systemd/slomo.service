@@ -1,0 +1,22 @@
+[Unit]
+Description=SloMo Command Center (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+User=soham
+WorkingDirectory=/home/soham/slomo
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose restart
+
+# Health self-check every 30 s is handled by docker restart policies;
+# systemd restarts the whole stack if compose itself dies.
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
