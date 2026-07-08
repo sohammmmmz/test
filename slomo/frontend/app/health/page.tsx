@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch, wsUrl, type ProcessInfo, type TelemetrySnapshot } from "@/lib/api";
 import { HealthCards } from "@/components/HealthCards";
 import { ProcessTable } from "@/components/ProcessTable";
+import { SlothLoader } from "@/components/SlothLoader";
 
 const HISTORY_LEN = 90; // ~3 minutes at a 2 s tick
 
@@ -88,8 +89,8 @@ export default function HealthPage() {
       {history.length ? (
         <HealthCards history={history} />
       ) : (
-        <div className="rounded-xl border border-dashed border-canopy-700 p-10 text-center text-cream-500 text-sm">
-          Waiting for the first telemetry tick… SloMo moves slowly, the data shouldn&apos;t.
+        <div className="grid place-items-center rounded-xl border border-dashed border-canopy-700">
+          <SlothLoader label="listening for the first telemetry tick…" />
         </div>
       )}
 

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, type Project, type SessionInfo } from "@/lib/api";
 import { ProjectTree } from "@/components/ProjectTree";
 import { ClaudeSessionDrawer } from "@/components/ClaudeSessionDrawer";
+import { SlothLoader } from "@/components/SlothLoader";
 
 const TEMPLATES = ["blank", "python", "node", "fastapi", "react"] as const;
 
@@ -16,7 +17,7 @@ export default function WorkspacePage() {
   const [drawerSession, setDrawerSession] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: projects = [] } = useQuery({
+  const { data: projects = [], isLoading } = useQuery({
     queryKey: ["projects"],
     queryFn: () => apiFetch<Project[]>("/api/projects"),
   });
@@ -91,6 +92,8 @@ export default function WorkspacePage() {
             {error} <button className="underline ml-1" onClick={() => setError(null)}>dismiss</button>
           </p>
         )}
+        {isLoading && <SlothLoader label="climbing through the workspace…" />}
+        {!isLoading && (
         <ProjectTree
           projects={projects}
           sessions={sessions}
@@ -99,6 +102,7 @@ export default function WorkspacePage() {
             if (window.confirm(`Delete project "${id}" and all its files?`)) remove.mutate(id);
           }}
         />
+        )}
       </section>
 
       <aside className="space-y-3">

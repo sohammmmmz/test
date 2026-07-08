@@ -7,6 +7,7 @@ import { wsUrl } from "@/lib/api";
 import { useSloMoStore } from "@/lib/store";
 import { useGeminiLive } from "@/lib/gemini-live";
 import { VoiceButton } from "@/components/VoiceButton";
+import { SlothLoader } from "@/components/SlothLoader";
 
 interface Bubble {
   id: number;
@@ -125,7 +126,12 @@ export default function ChatPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-9.5rem)]">
       <div ref={paneRef} className="flex-1 overflow-y-auto space-y-3 pb-4">
-        {bubbles.length === 0 && (
+        {bubbles.length === 0 && !wsReady && (
+          <div className="grid place-items-center pt-10">
+            <SlothLoader label="waking SloMo…" />
+          </div>
+        )}
+        {bubbles.length === 0 && wsReady && (
           <div className="text-center text-cream-500 pt-16 space-y-3">
             <p className="text-4xl">🦥</p>
             <p className="font-display italic">
