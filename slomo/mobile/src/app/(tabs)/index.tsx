@@ -7,6 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Backdrop } from "@/components/Backdrop";
 import { Sloth } from "@/components/Sloth";
+import { SlothLoader } from "@/components/SlothLoader";
 import { Sparkline } from "@/components/Sparkline";
 import { TiltCard } from "@/components/TiltCard";
 import {
@@ -118,6 +119,12 @@ export default function HealthScreen() {
                 ? "reading device info…"
                 : `can't reach ${settings.apiUrl} — check settings ⚙`}
           </Text>
+
+          {!latest && (
+            <SlothLoader
+              label={live ? "listening for the first telemetry tick…" : undefined}
+            />
+          )}
 
           <View style={styles.grid}>
             {tiles.map((tile, i) => (

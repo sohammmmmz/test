@@ -6,6 +6,9 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useContext, useEffect, useState } from "react";
+import { View } from "react-native";
+import { SlothLoader } from "@/components/SlothLoader";
+import { canopy } from "@/lib/theme";
 
 export interface Settings {
   apiUrl: string;
@@ -30,7 +33,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       .catch(() => setSettings(DEFAULTS));
   }, []);
 
-  if (settings === null) return null;
+  if (settings === null) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", backgroundColor: canopy.bark950 }}>
+        <SlothLoader />
+      </View>
+    );
+  }
 
   const save = async (next: Settings) => {
     setSettings(next);

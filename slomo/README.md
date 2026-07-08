@@ -89,10 +89,19 @@ mic ─► Gemini Live (voice I/O + transcription only)
                                                    └─► gemini.narrate() → sloth voice
 ```
 
+**Web**: push-to-talk via AudioWorklet. **Mobile**: hands-free — the mic
+streams continuously through `react-native-audio-api` (a native Web Audio
+implementation) and **Gemini Live's server-side VAD** owns the turn-taking;
+barge-in flushes queued speech instantly. Voice on mobile needs a
+development build (`npx expo run:android` / `run:ios`) because the audio
+engine is a native module — Expo Go won't load it. Mic permissions are
+already declared in `app.json`.
+
 ## Phase status
 
 - **P0/P1/P2** scaffolded and runnable: telemetry WS, workspace + sessions,
   SloMoGraph with memory and Langfuse hooks, full UI.
-- **P3** voice: implemented (needs `SLOMO_GEMINI_API_KEY` + `[voice]` extra).
+- **P3** voice: implemented on web (push-to-talk) and mobile (hands-free,
+  Gemini server VAD); needs `SLOMO_GEMINI_API_KEY` + `[voice]` extra.
 - **P4** pending: Monaco viewer (plain viewer shipped), Rive avatar (CSS sloth
   shipped with the same `data-state` contract), Langfuse dashboards.

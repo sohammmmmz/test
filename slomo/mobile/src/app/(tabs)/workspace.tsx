@@ -8,6 +8,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Backdrop } from "@/components/Backdrop";
 import { Sloth } from "@/components/Sloth";
+import { SlothLoader } from "@/components/SlothLoader";
 import { TiltCard } from "@/components/TiltCard";
 import { apiFetch, type Project, type SessionInfo } from "@/lib/api";
 import { useSettings } from "@/lib/settings";
@@ -27,6 +28,7 @@ export default function WorkspaceScreen() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -39,6 +41,8 @@ export default function WorkspaceScreen() {
       setError(null);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setLoaded(true);
     }
   }, [settings]);
 
@@ -102,7 +106,8 @@ export default function WorkspaceScreen() {
               {error} — pull to retry, or check settings on the Health tab.
             </Text>
           )}
-          {projects.length === 0 && !error && (
+          {!loaded && <SlothLoader label="climbing through the workspace…" />}
+          {loaded && projects.length === 0 && !error && (
             <View style={[glassCard, styles.emptyCard]}>
               <Text style={{ fontSize: 30 }}>🦥</Text>
               <Text style={styles.emptyText}>

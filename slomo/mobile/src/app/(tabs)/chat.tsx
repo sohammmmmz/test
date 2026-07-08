@@ -1,5 +1,7 @@
-/** Chat with SloMo — same /ws/chat protocol as the web, including the
- * destructive-tool confirm cards. Voice stays on the web for now. */
+/** Chat with SloMo — same /ws/chat protocol as the web, plus hands-free
+ * voice: Gemini Live with server-side VAD (open mic, no push-to-talk).
+ * Requires a development build (react-native-audio-api is a native module;
+ * Expo Go won't load it). */
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -17,6 +19,7 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { Backdrop } from "@/components/Backdrop";
 import { Sloth, type SlothState } from "@/components/Sloth";
 import { wsUrl } from "@/lib/api";
+import { useGeminiLive } from "@/lib/gemini-live";
 import { useSettings } from "@/lib/settings";
 import { canopy, glassCard } from "@/lib/theme";
 
@@ -47,6 +50,24 @@ export default function ChatScreen() {
   const add = (role: Bubble["role"], text: string) =>
     setBubbles((prev) => [...prev, { id: nextId++, role, text }]);
 
+  const sendToSloMo = (text: string, channel: "text" | "voice") => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ type: "user", text, channel }));
+  };
+
+  const gemini = useGeminiLive(settings, {
+    // Gemini's VAD closed a user turn: show it and hand it to the agent.
+    onUserTurn: (text) => {
+      add("user", text);
+      sendToSloMo(text, "voice");
+      setSlothState("thinking");
+    },
+    onSpeakingChange: (speaking) => setSlothState(speaking ? "speaking" : "listening"),
+    onError: (err) => add("system", `voice: ${err}`),
+  });
+  const geminiRef = useRef(gemini);
+  geminiRef.current = gemini;
+
   useEffect(() => {
     const ws = new WebSocket(wsUrl(settings, "/ws/chat"));
     wsRef.current = ws;
@@ -58,7 +79,10 @@ export default function ChatScreen() {
       if (msg.type === "node" && msg.name === "tool_exec") setSlothState("working");
       if (msg.type === "confirm_request")
         setConfirm({ tool: msg.tool, args: msg.args, message: msg.message });
-      if (msg.type === "reply") add("slomo", msg.text);
+      if (msg.type === "reply") {
+        add("slomo", msg.text);
+        if (geminiRef.current.connected) geminiRef.current.narrate(msg.text);
+      }
       if (msg.type === "error") add("system", msg.error);
     };
     return () => ws.close();
@@ -72,8 +96,21 @@ export default function ChatScreen() {
     const text = input.trim();
     if (!text || wsRef.current?.readyState !== WebSocket.OPEN) return;
     add("user", text);
-    wsRef.current.send(JSON.stringify({ type: "user", text, channel: "text" }));
+    sendToSloMo(text, "text");
     setInput("");
+  };
+
+  const toggleVoice = () => {
+    if (gemini.connected) {
+      gemini.disconnect();
+      setSlothState("idle");
+    } else {
+      setSlothState("listening");
+      gemini.connect().catch((e: Error) => {
+        add("system", `voice connect failed: ${e.message}`);
+        setSlothState("idle");
+      });
+    }
   };
 
   const answer = (approved: boolean) => {
@@ -138,12 +175,27 @@ export default function ChatScreen() {
               value={input}
               onChangeText={setInput}
               onSubmitEditing={send}
-              placeholder={ready ? "Ask SloMo anything…" : "connecting to SloMo…"}
+              placeholder={
+                gemini.connected
+                  ? "SloMo is listening — just talk…"
+                  : ready
+                    ? "Ask SloMo anything…"
+                    : "connecting to SloMo…"
+              }
               placeholderTextColor={canopy.cream700}
               editable={ready}
               style={styles.input}
               returnKeyType="send"
             />
+            <Pressable
+              style={[styles.btnVoice, gemini.connected && styles.btnVoiceOn]}
+              onPress={toggleVoice}
+              accessibilityLabel={gemini.connected ? "Turn voice off" : "Turn voice on"}
+            >
+              <Text style={gemini.connected ? styles.btnVoiceOnText : styles.btnVoiceText}>
+                {gemini.connected ? "● live" : "🎙"}
+              </Text>
+            </Pressable>
             <Pressable style={[styles.btnSend, !ready && { opacity: 0.5 }]} onPress={send}>
               <Text style={styles.btnSendText}>Send</Text>
             </Pressable>
@@ -233,4 +285,17 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(138,168,111,0.2)",
   },
   btnSendText: { color: canopy.moss300, fontSize: 14 },
+  btnVoice: {
+    justifyContent: "center",
+    paddingHorizontal: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: canopy.canopy700,
+  },
+  btnVoiceOn: {
+    borderColor: canopy.moss400,
+    backgroundColor: "rgba(138,168,111,0.25)",
+  },
+  btnVoiceText: { fontSize: 15 },
+  btnVoiceOnText: { color: canopy.moss300, fontSize: 12, fontWeight: "600" },
 });
