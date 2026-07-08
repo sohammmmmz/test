@@ -48,7 +48,7 @@ export default function ProjectPage({ params }: { params: Promise<{ projectId: s
         <button
           onClick={() => chat.mutate()}
           disabled={chat.isPending}
-          className="ml-auto px-3 py-2 rounded-lg bg-moss-500/20 border border-moss-400/40 text-moss-300 text-sm hover:bg-moss-500/30 transition-colors duration-300 ease-sloth disabled:opacity-50"
+          className="ml-auto px-3 py-2 rounded-lg press-depth bg-moss-500/20 border border-moss-400/40 text-moss-300 text-sm hover:bg-moss-500/30 transition-colors duration-300 ease-sloth disabled:opacity-50"
         >
           {chat.isPending ? "Starting…" : "🦥 Chat with this Claude"}
         </button>

@@ -2,6 +2,7 @@
 
 import type { TelemetrySnapshot } from "@/lib/api";
 import { Area, AreaChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Tilt } from "@/components/Tilt";
 
 interface Props {
   history: TelemetrySnapshot[];
@@ -115,7 +116,8 @@ export function HealthCards({ history }: Props) {
     <div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {tiles.map((tile) => (
-          <div key={tile.label} className="rounded-xl border border-canopy-700 bg-canopy-900 p-4">
+          <Tilt key={tile.label}>
+          <div className="glass rounded-xl p-4 h-full">
             <div className="flex items-baseline justify-between">
               <span className="text-xs uppercase tracking-widest text-cream-500">{tile.label}</span>
               {tile.status && (
@@ -131,9 +133,11 @@ export function HealthCards({ history }: Props) {
             <div className="text-xs text-cream-500 mt-0.5">{tile.sub}</div>
             <Sparkline points={tile.points} color={tile.series} />
           </div>
+          </Tilt>
         ))}
         {rootDisk && (
-          <div className="rounded-xl border border-canopy-700 bg-canopy-900 p-4">
+          <Tilt>
+          <div className="glass rounded-xl p-4 h-full">
             <span className="text-xs uppercase tracking-widest text-cream-500">Storage</span>
             <div className="mt-1 text-3xl font-sans font-semibold text-cream-100">
               {rootDisk.percent.toFixed(0)}%
@@ -152,6 +156,7 @@ export function HealthCards({ history }: Props) {
               />
             </div>
           </div>
+          </Tilt>
         )}
       </div>
     </div>

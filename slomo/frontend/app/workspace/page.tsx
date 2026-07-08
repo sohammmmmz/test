@@ -80,7 +80,7 @@ export default function WorkspacePage() {
           <h1 className="font-display text-2xl text-cream-100">Workspace</h1>
           <button
             onClick={() => setShowNew(true)}
-            className="px-3 py-2 rounded-lg bg-moss-500/20 border border-moss-400/40 text-moss-300 text-sm hover:bg-moss-500/30 transition-colors duration-300 ease-sloth"
+            className="px-3 py-2 rounded-lg press-depth bg-moss-500/20 border border-moss-400/40 text-moss-300 text-sm hover:bg-moss-500/30 transition-colors duration-300 ease-sloth"
           >
             + New project
           </button>
@@ -175,7 +175,7 @@ export default function WorkspacePage() {
               <button
                 onClick={() => newName.trim() && createProject.mutate()}
                 disabled={!newName.trim() || createProject.isPending}
-                className="px-3 py-2 rounded-lg bg-moss-500/20 border border-moss-400/40 text-moss-300 hover:bg-moss-500/30 disabled:opacity-50"
+                className="px-3 py-2 rounded-lg press-depth bg-moss-500/20 border border-moss-400/40 text-moss-300 hover:bg-moss-500/30 disabled:opacity-50"
               >
                 {createProject.isPending ? "Creating…" : "Create + start Claude"}
               </button>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { Project, SessionInfo } from "@/lib/api";
+import { Tilt } from "@/components/Tilt";
 
 const STACK_ICON: Record<string, string> = {
   blank: "🌿",
@@ -36,10 +37,9 @@ export function ProjectTree({ projects, sessions, onResume, onDelete }: Props) {
           (s) => s.project_id === project.id && s.status === "running",
         );
         return (
-          <li
-            key={project.id}
-            className="rounded-xl border border-canopy-700 bg-canopy-900 px-4 py-3 flex items-center gap-3"
-          >
+          <li key={project.id}>
+          <Tilt max={3} lift={false}>
+          <div className="glass rounded-xl px-4 py-3 flex items-center gap-3">
             <span className="text-lg" aria-hidden>
               {STACK_ICON[project.stack] ?? "🌿"}
             </span>
@@ -80,6 +80,8 @@ export function ProjectTree({ projects, sessions, onResume, onDelete }: Props) {
                 Delete
               </button>
             </div>
+          </div>
+          </Tilt>
           </li>
         );
       })}

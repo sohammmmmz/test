@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
+import { motion } from "framer-motion";
 import { wsUrl } from "@/lib/api";
 import { useSloMoStore } from "@/lib/store";
 import { useGeminiLive } from "@/lib/gemini-live";
@@ -136,7 +137,13 @@ export default function ChatPage() {
           </div>
         )}
         {bubbles.map((b) => (
-          <div key={b.id} className={clsx("flex", b.role === "user" ? "justify-end" : "justify-start")}>
+          <motion.div
+            key={b.id}
+            initial={{ opacity: 0, y: 14, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: "spring", stiffness: 220, damping: 24 }}
+            className={clsx("flex", b.role === "user" ? "justify-end" : "justify-start")}
+          >
             <div
               title={b.traceId ? `trace: ${b.traceId}` : undefined}
               className={clsx(
@@ -149,7 +156,7 @@ export default function ChatPage() {
               {b.role === "slomo" && <span className="mr-1.5">🦥</span>}
               {b.text}
             </div>
-          </div>
+          </motion.div>
         ))}
         {confirm && (
           <div className="mx-auto max-w-md rounded-xl border p-4 space-y-3 text-sm"
@@ -198,7 +205,7 @@ export default function ChatPage() {
           <button
             onClick={submitText}
             disabled={!wsReady}
-            className="px-4 py-2.5 rounded-xl bg-moss-500/20 border border-moss-400/40 text-moss-300 text-sm hover:bg-moss-500/30 transition-colors duration-300 ease-sloth disabled:opacity-50"
+            className="px-4 py-2.5 rounded-xl press-depth bg-moss-500/20 border border-moss-400/40 text-moss-300 text-sm hover:bg-moss-500/30 transition-colors duration-300 ease-sloth disabled:opacity-50"
           >
             Send
           </button>

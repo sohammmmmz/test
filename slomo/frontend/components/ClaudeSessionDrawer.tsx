@@ -81,7 +81,7 @@ export function ClaudeSessionDrawer({
         />
         <button
           onClick={send}
-          className="px-3 py-2 rounded-lg bg-moss-500/20 border border-moss-400/40 text-moss-300 text-sm hover:bg-moss-500/30 transition-colors duration-300 ease-sloth"
+          className="px-3 py-2 rounded-lg press-depth bg-moss-500/20 border border-moss-400/40 text-moss-300 text-sm hover:bg-moss-500/30 transition-colors duration-300 ease-sloth"
         >
           Send
         </button>
