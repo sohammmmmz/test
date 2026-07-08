@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://slomo.local:3000",
+        "http://localhost:8081",  # expo web dev preview
     ]
 
     # Claude Code sessions

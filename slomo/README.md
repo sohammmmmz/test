@@ -20,7 +20,9 @@ slomo/
 ├─ frontend/         Next.js 15 (App Router, React 19, TS, Tailwind)
 │  ├─ app/           /health · /chat · /workspace · /workspace/[projectId]
 │  ├─ lib/           api/WS clients · gemini-live (browser port) · audio (PCM/worklet)
-│  └─ components/    SlothAvatar · VoiceButton · HealthCards · ProcessTable · …
+│  └─ components/    SlothAvatar · VoiceButton · HealthCards · Tilt · CanopyBackdrop · …
+├─ mobile/           Expo (React Native 0.86, expo-router, Reanimated 4)
+│  └─ src/app/       tabs: Health · Chat · Workspace + session/[id] + settings modals
 ├─ docker-compose.yml   backend + frontend (+ optional langfuse profile)
 └─ systemd/slomo.service
 ```
@@ -40,7 +42,20 @@ cd frontend
 npm install
 cp .env.local.example .env.local # match the auth token
 npm run dev                      # http://localhost:3000
+
+# mobile (Expo)
+cd mobile
+npm install
+npx expo start                   # scan the QR with Expo Go, or press w for web preview
+# then set backend URL + token in the app: Health tab → ⚙
 ```
+
+The mobile app talks to the same backend over REST + WebSockets: live
+telemetry tiles you can pick up (touch-driven 3D tilt with haptics), the
+SloMo chat with destructive-tool confirm cards, and per-project Claude
+terminals as slide-up sheets. The web UI layers the same identity with
+pointer-tracked card tilt, a firefly canopy backdrop, and "unfurl" page
+transitions — all spring-based and reduced-motion safe.
 
 Without an `SLOMO_ANTHROPIC_API_KEY` the agent runs in **degraded heuristic
 mode** (intent regexes + canned plans) — everything still works, the prose is

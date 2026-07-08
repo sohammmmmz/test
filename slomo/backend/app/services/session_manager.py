@@ -104,6 +104,10 @@ class ClaudeSession:
 class SessionManager:
     def __init__(self) -> None:
         self._sessions: dict[str, ClaudeSession] = {}
+        # Captured in the app lifespan; PTY reader threads and threadpool-run
+        # routes both need the real server loop (get_event_loop() raises off
+        # the main thread).
+        self.loop: asyncio.AbstractEventLoop | None = None
 
     def _running(self) -> list[ClaudeSession]:
         return [s for s in self._sessions.values() if s.status == "running"]
@@ -116,7 +120,7 @@ class SessionManager:
             raise RuntimeError(
                 f"max concurrent Claude sessions reached ({settings.max_claude_sessions})"
             )
-        session = ClaudeSession(project_id, project_path, asyncio.get_event_loop())
+        session = ClaudeSession(project_id, project_path, self.loop or asyncio.get_event_loop())
         self._sessions[session.id] = session
         return session
 

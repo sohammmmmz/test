@@ -9,7 +9,14 @@ import { useEffect, useRef, useState } from "react";
 import { wsUrl } from "@/lib/api";
 
 // Phase 1 renders plain text; a real ANSI terminal (xterm.js) is Phase 4.
-const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*(\x07|\x1b\\)|\x1b[=>]/g;
+const CURSOR_FWD = /\x1b\[(\d+)C/g; // cursor-forward carries layout: keep it as spaces
+const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*(\x07|\x1b\\)|\x1b[=>78]/g;
+
+function toPlainText(data: string): string {
+  return data
+    .replace(CURSOR_FWD, (_m, n) => " ".repeat(Math.min(Number(n), 200)))
+    .replace(ANSI_RE, "");
+}
 
 export function ClaudeSessionDrawer({
   sessionId,
@@ -32,7 +39,7 @@ export function ClaudeSessionDrawer({
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === "output") {
-        setOutput((prev) => (prev + msg.data.replace(ANSI_RE, "")).slice(-60_000));
+        setOutput((prev) => (prev + toPlainText(msg.data)).slice(-60_000));
       }
     };
     return () => ws.close();
