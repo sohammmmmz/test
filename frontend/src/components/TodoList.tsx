@@ -1,0 +1,191 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { Thread, Tick } from "./ui";
+import { relativeDue } from "@/lib/format";
+import type { Task, Todo } from "@/lib/types";
+
+/**
+ * A day's list.
+ *
+ * Suggestions sit beneath the list rather than inside it: they are GitLab tasks
+ * the person could pick up, not commitments they have made. Moving one up is a
+ * deliberate act, which is the whole distinction between a task and a todo.
+ */
+export function TodoList({
+  todos, suggestions, date, canAdd, canTick, title, userId,
+}: {
+  todos: Todo[];
+  suggestions: Task[];
+  date: string;
+  canAdd?: boolean;
+  canTick?: boolean;
+  title: string;
+  userId?: number;
+}) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [busy, setBusy] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const refresh = () => startTransition(() => router.refresh());
+
+  async function toggle(todo: Todo) {
+    setBusy(todo.id);
+    await fetch(`/api/proxy/api/daily/todos/${todo.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ done: !todo.is_done }),
+    });
+    setBusy(null);
+    refresh();
+  }
+
+  async function remove(todo: Todo) {
+    setBusy(todo.id);
+    await fetch(`/api/proxy/api/daily/todos/${todo.id}`, { method: "DELETE" });
+    setBusy(null);
+    refresh();
+  }
+
+  async function add(title: string, taskId?: number) {
+    if (!title.trim()) return;
+    setAdding(true);
+    await fetch("/api/proxy/api/daily/todos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: title.trim(), date, user_id: userId ?? null, task_id: taskId ?? null,
+      }),
+    });
+    setDraft("");
+    setAdding(false);
+    refresh();
+  }
+
+  const done = todos.filter((t) => t.is_done).length;
+
+  return (
+    <div className="stack gap-4">
+      <div className="panel rise" style={{ overflow: "hidden" }}>
+        <div className="panel-head">
+          <h2 style={{ fontSize: "1.05rem" }}>{title}</h2>
+          <span className="mono faint" style={{ fontSize: ".78rem" }}>
+            {done}/{todos.length}
+          </span>
+        </div>
+
+        <div className="stack">
+          {todos.map((todo) => (
+            <div key={todo.id} className="todo" data-done={todo.is_done}>
+              {canTick ? (
+                <button
+                  className="check"
+                  data-done={todo.is_done}
+                  disabled={busy === todo.id}
+                  onClick={() => toggle(todo)}
+                  aria-label={todo.is_done ? `Undo ${todo.title}` : `Mark ${todo.title} done`}
+                >
+                  <Tick />
+                </button>
+              ) : (
+                <span className="check" data-done={todo.is_done} aria-hidden><Tick /></span>
+              )}
+
+              <Thread days={todo.carry_count} stale={todo.is_stale} />
+
+              <span className="grow stack gap-1">
+                <span className="todo-title">{todo.title}</span>
+                <span className="row gap-2 center wrap" style={{ fontSize: ".72rem" }}>
+                  {todo.task && (
+                    <a href={todo.task.web_url} target="_blank" rel="noreferrer"
+                       className="mono" style={{ color: "var(--brand)" }}>
+                      #{todo.task.gitlab_iid} {todo.task.project_name}
+                    </a>
+                  )}
+                  {todo.carry_count > 0 && (
+                    <span className="faint">
+                      carried {todo.carry_count} {todo.carry_count === 1 ? "day" : "days"}
+                    </span>
+                  )}
+                  {todo.source === "meeting" && (
+                    <span className="faint">from the standup</span>
+                  )}
+                </span>
+              </span>
+
+              {canTick && (
+                <button className="btn btn-ghost btn-sm" onClick={() => remove(todo)}
+                        disabled={busy === todo.id} aria-label={`Remove ${todo.title}`}>
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+
+          {todos.length === 0 && (
+            <p className="faint" style={{ padding: "22px 18px", fontSize: ".86rem" }}>
+              Nothing here yet. Add something below, or pick up one of the suggestions.
+            </p>
+          )}
+        </div>
+
+        {canAdd && (
+          <form
+            onSubmit={(e) => { e.preventDefault(); add(draft); }}
+            className="row gap-2"
+            style={{ padding: "12px 16px", borderTop: "1px solid var(--line)" }}
+          >
+            <input
+              className="field"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Add something to today — it does not have to be a GitLab task"
+            />
+            <button className="btn btn-primary btn-sm" disabled={adding || !draft.trim()}>
+              {adding && <span className="spin" />}
+              Add
+            </button>
+          </form>
+        )}
+      </div>
+
+      {suggestions.length > 0 && (
+        <div className="panel rise" style={{ overflow: "hidden", animationDelay: "80ms" }}>
+          <div className="panel-head">
+            <div className="stack">
+              <h2 style={{ fontSize: "1.02rem" }}>Could pick up</h2>
+              <span className="faint" style={{ fontSize: ".77rem" }}>
+                Open GitLab tasks, soonest due first
+              </span>
+            </div>
+          </div>
+          <div className="stack">
+            {suggestions.map((task) => (
+              <div key={task.id} className="todo">
+                <span className="grow stack gap-1">
+                  <span className="todo-title">{task.title}</span>
+                  <span className="row gap-2 center wrap" style={{ fontSize: ".72rem" }}>
+                    <span className="mono faint">{task.project_name}</span>
+                    <span className="mono"
+                          style={{ color: task.is_overdue ? "var(--overdue)" : "var(--ink-faint)" }}>
+                      {relativeDue(task.due_date)}
+                    </span>
+                  </span>
+                </span>
+                {canAdd && (
+                  <button className="btn btn-sm" onClick={() => add(task.title, task.id)}
+                          disabled={adding}>
+                    Add to today
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

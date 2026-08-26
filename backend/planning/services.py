@@ -1,0 +1,285 @@
+"""Keeping milestones and tasks in step with GitLab.
+
+Writes go upstream first and are mirrored locally on success, so this database
+never claims something exists in GitLab that does not. Reads reconcile the
+other way: opening a project re-reads GitLab, because someone editing an issue
+in GitLab's own UI must not have their change silently overwritten.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
+
+from gitlab_api.exceptions import GitLabError, GitLabNotFound
+from gitlab_api.gateway import service_client
+
+from .models import Milestone, Task
+
+logger = logging.getLogger(__name__)
+User = get_user_model()
+
+
+class PlanningError(Exception):
+    """GitLab refused the change, so nothing was recorded here either."""
+
+
+def _repo(project):
+    repo = getattr(project, "repo", None)
+    if repo is None:
+        raise PlanningError("This project has no repository.")
+    return repo
+
+
+# ---------------------------------------------------------------------------
+# Milestones
+# ---------------------------------------------------------------------------
+
+
+def create_milestone(project, *, title: str, description: str = "",
+                     start_date=None, due_date=None) -> Milestone:
+    repo = _repo(project)
+    client = service_client()
+
+    try:
+        payload = client.create_milestone(
+            repo.gitlab_project_id, title=title, description=description,
+            start_date=start_date, due_date=due_date,
+        )
+    except GitLabError as exc:
+        raise PlanningError(f"GitLab would not create the milestone: {exc}") from exc
+
+    return Milestone.objects.create(
+        project=project,
+        gitlab_id=payload.get("id"),
+        gitlab_iid=payload.get("iid"),
+        title=title,
+        description=description,
+        state=payload.get("state") or Milestone.State.ACTIVE,
+        start_date=start_date,
+        due_date=due_date,
+        web_url=payload.get("web_url", "") or "",
+    )
+
+
+def update_milestone(milestone: Milestone, **fields) -> Milestone:
+    repo = _repo(milestone.project)
+    client = service_client()
+
+    upstream = {k: v for k, v in fields.items() if v is not None}
+    if "state" in fields:
+        upstream.pop("state", None)
+        upstream["state_event"] = (
+            "close" if fields["state"] == Milestone.State.CLOSED else "activate"
+        )
+
+    if milestone.gitlab_id:
+        try:
+            client.update_milestone(repo.gitlab_project_id, milestone.gitlab_id, **upstream)
+        except GitLabNotFound:
+            # Deleted in GitLab. Keeping our copy would be a lie.
+            logger.warning("Milestone %s no longer exists in GitLab", milestone.gitlab_id)
+            milestone.gitlab_id = None
+        except GitLabError as exc:
+            raise PlanningError(f"GitLab would not update the milestone: {exc}") from exc
+
+    for key, value in fields.items():
+        setattr(milestone, key, value)
+    milestone.save()
+    return milestone
+
+
+def delete_milestone(milestone: Milestone) -> None:
+    repo = _repo(milestone.project)
+    if milestone.gitlab_id:
+        try:
+            service_client().delete_milestone(repo.gitlab_project_id, milestone.gitlab_id)
+        except GitLabError as exc:
+            logger.warning("Could not delete milestone in GitLab: %s", exc)
+    milestone.delete()
+
+
+# ---------------------------------------------------------------------------
+# Tasks
+# ---------------------------------------------------------------------------
+
+
+def create_task(milestone: Milestone, *, title: str, description: str = "",
+                assignee=None, due_date=None, labels=None) -> Task:
+    project = milestone.project
+    repo = _repo(project)
+    client = service_client()
+
+    try:
+        payload = client.create_issue(
+            repo.gitlab_project_id,
+            title=title,
+            description=description,
+            milestone_id=milestone.gitlab_id,
+            assignee_id=assignee.gitlab_user_id if assignee else None,
+            due_date=due_date,
+            labels=labels,
+        )
+    except GitLabError as exc:
+        raise PlanningError(f"GitLab would not create the task: {exc}") from exc
+
+    return Task.objects.create(
+        milestone=milestone,
+        gitlab_id=payload.get("id"),
+        gitlab_iid=payload.get("iid"),
+        title=title,
+        description=description,
+        state=payload.get("state") or Task.State.OPEN,
+        assignee=assignee,
+        due_date=due_date,
+        labels=list(labels or []),
+        web_url=payload.get("web_url", "") or "",
+    )
+
+
+def update_task(task: Task, **fields) -> Task:
+    """Edit a task, upstream first.
+
+    Closing one ticks off any todo pointing at it — the two are the same piece
+    of work, and marking it done in one place and not the other is how people
+    stop trusting the todo list.
+    """
+    repo = _repo(task.project)
+    client = service_client()
+
+    upstream: dict = {}
+    if "title" in fields:
+        upstream["title"] = fields["title"]
+    if "description" in fields:
+        upstream["description"] = fields["description"]
+    if "due_date" in fields:
+        upstream["due_date"] = fields["due_date"] or ""
+    if "assignee" in fields:
+        assignee = fields["assignee"]
+        # GitLab clears an assignee with 0, not with null.
+        upstream["assignee_id"] = assignee.gitlab_user_id if assignee else 0
+    if "state" in fields:
+        upstream["state_event"] = (
+            "close" if fields["state"] == Task.State.CLOSED else "reopen"
+        )
+
+    if task.gitlab_iid and upstream:
+        try:
+            client.update_issue(repo.gitlab_project_id, task.gitlab_iid, **upstream)
+        except GitLabNotFound:
+            logger.warning("Issue %s no longer exists in GitLab", task.gitlab_iid)
+            task.gitlab_iid = None
+        except GitLabError as exc:
+            raise PlanningError(f"GitLab would not update the task: {exc}") from exc
+
+    was_open = task.state == Task.State.OPEN
+    for key, value in fields.items():
+        setattr(task, key, value)
+    if task.state == Task.State.CLOSED and was_open:
+        task.closed_at = timezone.now()
+    elif task.state == Task.State.OPEN:
+        task.closed_at = None
+    task.save()
+
+    if task.state == Task.State.CLOSED and was_open:
+        _complete_todos_for(task)
+    return task
+
+
+def _complete_todos_for(task: Task) -> int:
+    from daily.models import Todo
+
+    return Todo.objects.filter(task=task, done_at__isnull=True).update(
+        done_at=timezone.now()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation
+# ---------------------------------------------------------------------------
+
+
+def reconcile_project(project) -> dict:
+    """Re-read milestones and issues from GitLab into this database.
+
+    Run when a project is opened. GitLab is authoritative: an issue closed in
+    its UI closes here, and the todo pointing at it is ticked off too.
+    """
+    repo = getattr(project, "repo", None)
+    if repo is None:
+        return {"milestones": 0, "tasks": 0, "todos_completed": 0}
+
+    client = service_client()
+    try:
+        milestone_payloads = client.list_milestones(repo.gitlab_project_id)
+        issue_payloads = client.list_issues(repo.gitlab_project_id)
+    except GitLabError as exc:
+        logger.warning("Could not reconcile %s: %s", project.name, exc)
+        return {"milestones": 0, "tasks": 0, "todos_completed": 0, "error": str(exc)}
+
+    by_gitlab_id: dict[int, Milestone] = {}
+    for payload in milestone_payloads:
+        milestone, _ = Milestone.objects.update_or_create(
+            project=project,
+            gitlab_id=payload["id"],
+            defaults={
+                "gitlab_iid": payload.get("iid"),
+                "title": payload.get("title", ""),
+                "description": payload.get("description", "") or "",
+                "state": payload.get("state") or Milestone.State.ACTIVE,
+                "start_date": parse_date(payload["start_date"]) if payload.get("start_date") else None,
+                "due_date": parse_date(payload["due_date"]) if payload.get("due_date") else None,
+                "web_url": payload.get("web_url", "") or "",
+            },
+        )
+        by_gitlab_id[payload["id"]] = milestone
+
+    # A GitLab user id is the only reliable way back to a person here; commit
+    # emails and display names are not.
+    users = {
+        u.gitlab_user_id: u
+        for u in User.objects.exclude(gitlab_user_id__isnull=True)
+    }
+
+    todos_completed = 0
+    task_count = 0
+    for payload in issue_payloads:
+        milestone_payload = payload.get("milestone") or {}
+        milestone = by_gitlab_id.get(milestone_payload.get("id"))
+        if milestone is None:
+            # An issue with no milestone has no home in this model. It stays in
+            # GitLab untouched rather than being invented a milestone here.
+            continue
+
+        assignee_payload = payload.get("assignee") or {}
+        state = payload.get("state") or Task.State.OPEN
+
+        task, _ = Task.objects.update_or_create(
+            milestone=milestone,
+            gitlab_id=payload["id"],
+            defaults={
+                "gitlab_iid": payload.get("iid"),
+                "title": payload.get("title", ""),
+                "description": payload.get("description", "") or "",
+                "state": state,
+                "assignee": users.get(assignee_payload.get("id")),
+                "due_date": parse_date(payload["due_date"]) if payload.get("due_date") else None,
+                "labels": payload.get("labels") or [],
+                "web_url": payload.get("web_url", "") or "",
+                "closed_at": (
+                    parse_datetime(payload["closed_at"]) if payload.get("closed_at") else None
+                ),
+            },
+        )
+        task_count += 1
+        if state == Task.State.CLOSED:
+            todos_completed += _complete_todos_for(task)
+
+    return {
+        "milestones": len(by_gitlab_id),
+        "tasks": task_count,
+        "todos_completed": todos_completed,
+    }

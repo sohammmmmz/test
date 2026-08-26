@@ -1,0 +1,175 @@
+% Soham's Resume
+% Author: Soham Das
+% License: CC-BY-4.0
+\documentclass[letterpaper,10pt]{article}
+
+%%===== Packages =====%%
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage{fontawesome5}
+\usepackage{multicol}
+\usepackage{bookmark}
+\usepackage{lastpage}
+\usepackage{CormorantGaramond}
+\usepackage{charter}
+\usepackage{xcolor}
+\usepackage{graphicx}          % FIX: required for \includegraphics
+\usepackage[utf8]{inputenc}    % FIX: Unicode support (fixes Rs. / rupee symbol)
+\usepackage[T1]{fontenc}
+
+%%===== Color Definitions =====%%
+\definecolor{accentTitle}{HTML}{0e6e55}
+\definecolor{accentText}{HTML}{0e6e55}
+\definecolor{accentLine}{HTML}{a16f0b}
+
+%%===== Page Style =====%%
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\addtolength{\oddsidemargin}{-0.7in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1.19in}
+\addtolength{\topmargin}{-0.7in}
+\addtolength{\textheight}{1.5in}
+\setlength{\multicolsep}{-2pt}
+\setlength{\columnsep}{1em}
+\setlength{\footskip}{3.7pt}
+\raggedbottom
+\raggedright
+
+%%===== Unicode for ATS =====%%
+\input{glyphtounicode}\pdfgentounicode=1
+
+%%===== Custom Commands =====%%
+\newcommand{\documentTitle}[2]{%
+  \begin{center}
+    {\Large\color{accentTitle}\textbf{#1}}\\[-1pt]
+    {\color{accentLine}\rule{0.9\textwidth}{0.5pt}}\\[-1pt]
+    {\footnotesize #2}\\[-2pt]
+    {\color{accentLine}\rule{0.9\textwidth}{0.5pt}}
+  \end{center}
+}
+
+\newcommand{\sectionDivider}{%
+  \vspace{6pt}
+  {\color{accentLine}\rule{0.9\textwidth}{0.5pt}}\\[-2pt]
+}
+
+\titleformat{\section}{%
+  \color{accentText}\large\bfseries
+}{}{0em}{}
+\titlespacing*{\section}{0pt}{7pt}{2pt}
+
+\newenvironment{resume_list}{%
+  \vspace{2pt}\begin{itemize}[leftmargin=20pt,itemsep=2pt,parsep=0pt,topsep=0pt]
+}{%
+  \end{itemize}\vspace{2pt}
+}
+
+\newlength{\outerbordwidth}
+\newlength{\innerbordwidth}
+\setlength{\outerbordwidth}{1.3pt}
+\setlength{\innerbordwidth}{0.6pt}
+\newcommand{\headingBf}[1]{%
+  \vspace{4pt}\textbf{#1}\par
+}
+\newcommand{\headingIt}[2]{%
+  \textit{#1}\hfill\textit{#2}\par
+}
+
+
+%%===== Document =====%%
+\begin{document}
+
+%%======== Header / Contact ========%%
+\documentTitle{SOHAM DAS}{%
+  \faEnvelope\ \href{mailto:sohamdas1300@gmail.com}{sohamdas1300@gmail.com} ~|~
+  \faPhone\ +91-8335098451 ~|~ Nagpur, Maharashtra, India ~|~
+  \faGitlab\ \href{https://gitlab.com/sohammmmzzzz}{gitlab.com/sohammmmzzzz}
+}
+
+%%======== Summary ========%%
+\section*{Summary}
+AI Engineer with a strong foundation in Deep Learning, RAG, and agentic workflows. Specialized in designing, fine-tuning, and deploying LLM-powered applications and integrating them into enterprise systems to drive automation and ROI. Proven ability to enhance supply chain processes through advanced AI solutions.
+
+%%======== Skills ========%%
+\section*{Core Skills}
+\begin{multicols}{2}
+\textbf{AI / ML}
+\begin{resume_list}
+  \item Deep Learning Fundamentals
+  \item LLM Fine-tuning (PEFT)
+  \item NLP Techniques \& Applications
+  \item Retrieval-Augmented Generation (RAG)
+  \item Agentic AI Workflows
+  \item Foundation Model (FM) Integration    % NEW -- from AIP-C01
+  \item Prompt Engineering \& Management    % NEW -- from AIP-C01
+  \item Responsible AI \& Governance         % NEW -- from AIP-C01
+  \item Computer Vision (YOLO)
+  \item Time Series Forecasting
+\end{resume_list}
+
+\columnbreak
+
+\textbf{Technology \& Frameworks}
+\begin{resume_list}
+  \item PyTorch, LangGraph, LlamaIndex, CrewAI
+  \item Python, TypeScript, Java, Rust
+  \item AWS Bedrock, SageMaker, Lambda, S3  % UPDATED
+  \item Amazon OpenSearch \& Vector Stores  % NEW -- from AIP-C01
+  \item SQL, PostgreSQL, MySQL
+  \item Graph Databases (Neo4j, Nebula)
+  \item Power BI \& DAX
+  \item Django, Next.js, Flask, FastAPI
+\end{resume_list}
+\end{multicols}
+
+%%======== Certifications & Licences ========%%  NEW SECTION
+\section*{Certifications \& Licences}
+\noindent
+\begin{minipage}[c]{0.11\textwidth}
+  \centering
+  \includegraphics[width=\linewidth]{aws-certified-generative-ai-developer-professional.png}
+\end{minipage}%
+\hspace{0.02\textwidth}
+\begin{minipage}[c]{0.84\textwidth}
+  \headingBf{AWS Certified Generative AI Developer~--~Professional (AIP-C01)}
+  \headingIt{Amazon Web Services (AWS)}{Issued 2026}
+  \begin{resume_list}
+    \item Validates advanced expertise in designing, implementing, and deploying production-grade GenAI solutions using Amazon Bedrock, SageMaker, RAG architectures, vector stores, and agentic AI workflows on AWS.
+    \item \textbf{Credential ID:}~\texttt{6ee4f82d05f44490b4aa0a5f95d53e41}
+  \end{resume_list}
+\end{minipage}
+
+%%======== Achievements ========%%
+\section*{Key Achievements}
+\begin{resume_list}
+  \item Recognized with 2 Excellence Awards for rapidly delivering a mission-critical application in a fast-paced development and deployment cycle, achieving cost savings of Rs.~5{+} Lacs
+  \item Awarded the Team Excellence Award for exceptional collaboration and successful delivery of the \textit{Manpower Management} application, recognising excellence in end-to-end development and deployment.
+\end{resume_list}
+
+%%======== Experience ========%%
+\section{Professional Experience}
+\headingBf{Solar Industries India Ltd}{Oct 2023 -- Present}
+\headingIt{Lead AI Engineer}{}
+\begin{resume_list}
+  \item \textbf{Real-time Root Cause Analysis:} Developed a two-tool offline LLM agent for real-time RCA: one tool queries historical SAP maintenance records while the other traverses per-machine Neo4j graph databases pairing technical manuals with SME fault-resolution inputs; the agent synthesises a structured RCA report triggered automatically by sensor alerts (temperature, pressure). (Tech: LangGraph, Neo4j, Ollama, Django, Next.js)
+
+  \item \textbf{Castbooster Counting Module:} Deployed a dual-camera CV pipeline where YOLO 26s handles detection across two streams --- top vertical camera for box and frame detection, horizontal camera for label-frame detection with Qwen3-VL 8B OCR for label content extraction --- and SAM~3 counts products from the stabilised crops; traceability records auto-written to PostgreSQL. (Tech: YOLO 26s, SAM 3, Qwen3-VL 8B, vLLM, Django, Next.js)
+
+
+  \item \textbf{ArselaT (Sales Data Chatbot):} Developed a natural-language-to-SQL inference engine over live AWS RDS sales data, enabling non-technical stakeholders to query real-time KPIs and auto-render interactive charts via conversational prompts; reduced ad-hoc reporting turnaround from hours to seconds. (Tech: Flask, Next.js, Ollama)
+
+  \item \textbf{ETL Pipeline:} Engineered a serverless Medallion-architecture pipeline (Bronze, Silver, Gold) using AWS Lambda, EventBridge, and S3 triggers for automated data ingestion and normalisation; implemented EventBridge-scheduled refresh cycles with AWS SNS alerting on pipeline failures, eliminating 10{+} hours of manual reconciliation per week.
+\end{resume_list}
+
+%%======== Education ========%%
+\section{Education}
+\headingBf{Sikkim Manipal Institute of Technology}{June 2018 -- June 2022}
+\headingIt{B.Tech.\ Information Technology~(8.17 CGPA)}{}
+
+\end{document}

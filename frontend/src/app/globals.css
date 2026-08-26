@@ -1,0 +1,662 @@
+/* ==========================================================================
+   Blue hour — the design system.
+
+   The product is opened at the start of the working day, so the ambient layer
+   tracks the clock: --dawn shifts along a designed ramp from first light to
+   evening. Only the atmosphere moves. Text, semantics and controls are fixed,
+   because a tool whose warning colour drifts is a tool nobody trusts.
+   ========================================================================== */
+
+:root {
+  /* Ground and ink */
+  --ground: #edf0f6;
+  --ground-deep: #e3e8f2;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --sunk: #e8ecf5;
+
+  --ink: #14192b;
+  --ink-soft: #4a5570;
+  --ink-faint: #8590aa;
+
+  --line: #d8dfec;
+  --line-firm: #bcc6da;
+
+  /* Brand — the blue hour before sunrise. Cool on purpose, so the entire
+     warm end of the spectrum is free to mean something. */
+  --brand: #3d53e0;
+  --brand-deep: #2c3cb5;
+  --brand-wash: #e4e7fb;
+  --on-brand: #ffffff;
+
+  /* Semantics. These never shift. */
+  --done: #1f9d6b;
+  --done-wash: #ddf2e8;
+  --attention: #b8770f;
+  --attention-wash: #fbeed6;
+  --overdue: #cf4740;
+  --overdue-wash: #fbe2e0;
+
+  /* Ambient wash. Re-pointed by the hour — see [data-daypart] below. */
+  --dawn-a: #dfe6ff;
+  --dawn-b: #f2ecff;
+
+  --radius: 10px;
+  --radius-lg: 16px;
+  --rail: 232px;
+
+  --shadow-sm: 0 1px 2px rgba(20, 25, 43, .05), 0 1px 3px rgba(20, 25, 43, .04);
+  --shadow: 0 2px 4px rgba(20, 25, 43, .05), 0 12px 28px rgba(20, 25, 43, .07);
+  --shadow-lg: 0 4px 8px rgba(20, 25, 43, .06), 0 28px 60px rgba(20, 25, 43, .13);
+
+  --display: var(--font-display), "Trebuchet MS", sans-serif;
+  --body: var(--font-body), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: var(--font-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --ease: cubic-bezier(.2, .7, .3, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0c1120;
+    --ground-deep: #080d19;
+    --surface: #151c30;
+    --surface-raised: #1b2439;
+    --sunk: #101728;
+
+    --ink: #e9edf8;
+    --ink-soft: #a3aec7;
+    --ink-faint: #6d7a96;
+
+    --line: #232d45;
+    --line-firm: #34405e;
+
+    --brand: #7b8bff;
+    --brand-deep: #97a3ff;
+    --brand-wash: #1b2350;
+    --on-brand: #0c1120;
+
+    --done: #43c493;
+    --done-wash: #102c22;
+    --attention: #e0a344;
+    --attention-wash: #322512;
+    --overdue: #f0766e;
+    --overdue-wash: #331a19;
+
+    --dawn-a: #16204a;
+    --dawn-b: #241d45;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+    --shadow: 0 2px 4px rgba(0, 0, 0, .3), 0 12px 28px rgba(0, 0, 0, .35);
+    --shadow-lg: 0 4px 8px rgba(0, 0, 0, .35), 0 28px 60px rgba(0, 0, 0, .5);
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: #0c1120;
+  --ground-deep: #080d19;
+  --surface: #151c30;
+  --surface-raised: #1b2439;
+  --sunk: #101728;
+
+  --ink: #e9edf8;
+  --ink-soft: #a3aec7;
+  --ink-faint: #6d7a96;
+
+  --line: #232d45;
+  --line-firm: #34405e;
+
+  --brand: #7b8bff;
+  --brand-deep: #97a3ff;
+  --brand-wash: #1b2350;
+  --on-brand: #0c1120;
+
+  --done: #43c493;
+  --done-wash: #102c22;
+  --attention: #e0a344;
+  --attention-wash: #322512;
+  --overdue: #f0766e;
+  --overdue-wash: #331a19;
+
+  --dawn-a: #16204a;
+  --dawn-b: #241d45;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow: 0 2px 4px rgba(0, 0, 0, .3), 0 12px 28px rgba(0, 0, 0, .35);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, .35), 0 28px 60px rgba(0, 0, 0, .5);
+}
+
+* { box-sizing: border-box; }
+
+html, body { padding: 0; margin: 0; }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: var(--brand); color: var(--on-brand); }
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+a { color: inherit; text-decoration: none; }
+
+/* --------------------------------------------------------------------------
+   Type
+   -------------------------------------------------------------------------- */
+
+h1, h2, h3, h4 {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: -.022em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+h1 { font-size: clamp(1.9rem, 3.4vw, 2.6rem); line-height: 1.04; }
+h2 { font-size: 1.32rem; line-height: 1.15; }
+h3 { font-size: 1.02rem; line-height: 1.25; }
+
+p { margin: 0; }
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.soft { color: var(--ink-soft); }
+.faint { color: var(--ink-faint); }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* --------------------------------------------------------------------------
+   Ambient — the one layer that moves with the clock
+
+   This is a tool you open at the start of the day, so the atmosphere tracks
+   the hour. Only the wash moves: text, semantics and controls are fixed,
+   because an interface whose warning colour drifts is one nobody trusts.
+   The attribute is stamped before first paint, so there is no flash and no
+   hydration mismatch from reading the clock during render.
+   -------------------------------------------------------------------------- */
+
+:root[data-daypart="dawn"]      { --dawn-a: #d9e2ff; --dawn-b: #ffe7ea; }
+:root[data-daypart="morning"]   { --dawn-a: #dfe6ff; --dawn-b: #f2ecff; }
+:root[data-daypart="afternoon"] { --dawn-a: #e4edfb; --dawn-b: #eef0f6; }
+:root[data-daypart="evening"]   { --dawn-a: #dcdcff; --dawn-b: #f6e7f5; }
+:root[data-daypart="night"]     { --dawn-a: #dde1f2; --dawn-b: #e6e3f4; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-daypart="dawn"]      { --dawn-a: #1a2350; --dawn-b: #3a1f34; }
+  :root:not([data-theme="light"])[data-daypart="morning"]   { --dawn-a: #16204a; --dawn-b: #241d45; }
+  :root:not([data-theme="light"])[data-daypart="afternoon"] { --dawn-a: #16273f; --dawn-b: #1a2138; }
+  :root:not([data-theme="light"])[data-daypart="evening"]   { --dawn-a: #1d1c46; --dawn-b: #331d3c; }
+  :root:not([data-theme="light"])[data-daypart="night"]     { --dawn-a: #10152c; --dawn-b: #191532; }
+}
+
+:root[data-theme="dark"][data-daypart="dawn"]      { --dawn-a: #1a2350; --dawn-b: #3a1f34; }
+:root[data-theme="dark"][data-daypart="morning"]   { --dawn-a: #16204a; --dawn-b: #241d45; }
+:root[data-theme="dark"][data-daypart="afternoon"] { --dawn-a: #16273f; --dawn-b: #1a2138; }
+:root[data-theme="dark"][data-daypart="evening"]   { --dawn-a: #1d1c46; --dawn-b: #331d3c; }
+:root[data-theme="dark"][data-daypart="night"]     { --dawn-a: #10152c; --dawn-b: #191532; }
+
+.dawn {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.dawn::before {
+  content: "";
+  position: absolute;
+  inset: -60% -20% auto -20%;
+  height: 320px;
+  background:
+    radial-gradient(60% 100% at 22% 100%, var(--dawn-a) 0%, transparent 70%),
+    radial-gradient(52% 100% at 78% 100%, var(--dawn-b) 0%, transparent 72%);
+  opacity: .85;
+  z-index: -1;
+  pointer-events: none;
+  animation: drift 22s var(--ease) infinite alternate;
+}
+
+@keyframes drift {
+  from { transform: translate3d(-2%, 0, 0) scale(1); }
+  to   { transform: translate3d(3%, 2%, 0) scale(1.08); }
+}
+
+/* --------------------------------------------------------------------------
+   Surfaces
+   -------------------------------------------------------------------------- */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.panel-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stack { display: flex; flex-direction: column; }
+.row { display: flex; align-items: center; }
+.wrap { flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.center { align-items: center; }
+.between { justify-content: space-between; }
+.gap-1 { gap: 4px; } .gap-2 { gap: 8px; } .gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; } .gap-5 { gap: 24px; } .gap-6 { gap: 32px; }
+
+.grid { display: grid; gap: 16px; }
+.cols-auto { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+.cols-auto > * { min-width: 0; }
+.stretch > * { height: 100%; }
+
+/* Two-column sections. Declared here rather than inline so they can actually
+   collapse — an inline grid-template-columns cannot carry a media query, and
+   the pair stayed side by side at 390px, crushing both halves. */
+.cols-2 { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+.cols-2-even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+
+/* Tiles stay two-up on a phone; one enormous number per screen is a lot of
+   scrolling to learn four small things. */
+.cols-stat { grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); }
+
+@media (max-width: 900px) {
+  .cols-2, .cols-2-even { grid-template-columns: minmax(0, 1fr); }
+}
+
+.scroll-x { overflow-x: auto; }
+
+/* --------------------------------------------------------------------------
+   Controls
+   -------------------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font: inherit;
+  font-size: .84rem;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-firm);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform .16s var(--ease), background .16s var(--ease),
+              border-color .16s var(--ease), box-shadow .16s var(--ease);
+}
+
+.btn:hover:not(:disabled) { border-color: var(--brand); transform: translateY(-1px); }
+.btn:active:not(:disabled) { transform: translateY(0); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
+  box-shadow: 0 1px 2px rgba(61, 83, 224, .3);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--brand-deep);
+  border-color: var(--brand-deep);
+  box-shadow: 0 6px 18px rgba(61, 83, 224, .3);
+}
+
+.btn-ghost { background: transparent; border-color: transparent; color: var(--ink-soft); }
+.btn-ghost:hover:not(:disabled) { background: var(--sunk); color: var(--ink); border-color: transparent; }
+
+.btn-lg { font-size: .95rem; padding: 12px 22px; border-radius: 12px; }
+.btn-sm { font-size: .76rem; padding: 5px 10px; }
+
+.field {
+  font: inherit;
+  font-size: .88rem;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-firm);
+  background: var(--surface);
+  color: var(--ink);
+  transition: border-color .16s var(--ease), box-shadow .16s var(--ease);
+}
+.field::placeholder { color: var(--ink-faint); }
+.field:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-wash);
+}
+textarea.field { resize: vertical; min-height: 68px; }
+
+label.lbl { display: flex; flex-direction: column; gap: 6px; font-size: .82rem; font-weight: 500; }
+
+/* --------------------------------------------------------------------------
+   Pills and status
+   -------------------------------------------------------------------------- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: .66rem;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--sunk);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.pill-done { background: var(--done-wash); color: var(--done); }
+.pill-attention { background: var(--attention-wash); color: var(--attention); }
+.pill-overdue { background: var(--overdue-wash); color: var(--overdue); }
+.pill-brand { background: var(--brand-wash); color: var(--brand); }
+
+.dot { width: 7px; height: 7px; border-radius: 999px; flex: none; }
+
+/* --------------------------------------------------------------------------
+   The carry-thread — the signature.
+
+   One strand per working day a todo has survived. It is not a number badge:
+   the mark accumulates, so a line that has been rolling all week is visibly
+   heavier than one added this morning, without anyone reading a figure.
+   -------------------------------------------------------------------------- */
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 10px;
+  flex: none;
+  padding-top: 5px;
+  opacity: .75;
+}
+
+.thread i {
+  display: block;
+  height: 1.5px;
+  border-radius: 2px;
+  background: var(--line-firm);
+  transform-origin: left;
+  animation: weave .45s var(--ease-out) both;
+}
+
+.thread i:nth-child(1) { width: 10px; animation-delay: .02s; }
+.thread i:nth-child(2) { width: 7px;  animation-delay: .07s; }
+.thread i:nth-child(3) { width: 10px; animation-delay: .12s; }
+.thread i:nth-child(4) { width: 6px;  animation-delay: .17s; }
+.thread i:nth-child(5) { width: 9px;  animation-delay: .22s; }
+
+.thread-stale { opacity: 1; }
+.thread-stale i { background: var(--attention); }
+.thread-old i { background: var(--overdue); }
+
+@keyframes weave {
+  from { opacity: 0; transform: scaleX(0); }
+  to   { opacity: 1; transform: scaleX(1); }
+}
+
+/* --------------------------------------------------------------------------
+   Todo rows
+   -------------------------------------------------------------------------- */
+
+.todo {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  transition: background .16s var(--ease);
+}
+.todo:last-child { border-bottom: none; }
+.todo:hover { background: var(--sunk); }
+
+.check {
+  width: 19px;
+  height: 19px;
+  border-radius: 6px;
+  border: 1.5px solid var(--line-firm);
+  background: var(--surface);
+  flex: none;
+  margin-top: 1px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition: all .18s var(--ease);
+}
+.check:hover { border-color: var(--done); }
+.check svg { opacity: 0; transform: scale(.5); transition: all .2s var(--ease-out); }
+.check[data-done="true"] { background: var(--done); border-color: var(--done); }
+.check[data-done="true"] svg { opacity: 1; transform: scale(1); }
+
+.todo-title { font-size: .89rem; line-height: 1.4; }
+.todo[data-done="true"] .todo-title { color: var(--ink-faint); text-decoration: line-through; }
+
+/* --------------------------------------------------------------------------
+   The round — the morning meeting filmstrip.
+
+   Advancing physically moves the team. The person whose turn it is comes
+   forward; everybody else recedes but stays visible, so the owner can always
+   see how much of the round is left.
+   -------------------------------------------------------------------------- */
+
+.round {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  transition: transform .55s var(--ease-out);
+  will-change: transform;
+}
+
+.round-seat {
+  flex: none;
+  width: 260px;
+  transition: opacity .45s var(--ease), filter .45s var(--ease), transform .45s var(--ease-out);
+  opacity: .38;
+  filter: saturate(.5);
+  transform: scale(.94);
+}
+.round-seat[data-current="true"] { opacity: 1; filter: none; transform: scale(1); }
+.round-seat[data-done="true"] { opacity: .22; }
+
+.round-stage {
+  overflow: hidden;
+  padding: 6px 0 14px;
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+
+/* --------------------------------------------------------------------------
+   Progress
+   -------------------------------------------------------------------------- */
+
+.meter {
+  height: 5px;
+  border-radius: 999px;
+  /* Not --sunk: that is also the panel-head background, and an empty meter
+     disappeared into it. --line reads against every surface we use. */
+  background: var(--line);
+  overflow: hidden;
+  position: relative;
+}
+.meter i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--brand);
+  transform-origin: left;
+  animation: fill .7s var(--ease-out) both;
+}
+.meter-done i { background: var(--done); }
+.meter-late i { background: var(--overdue); }
+
+@keyframes fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* --------------------------------------------------------------------------
+   Tables
+   -------------------------------------------------------------------------- */
+
+table.data { border-collapse: collapse; width: 100%; }
+table.data th, table.data td {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: .86rem;
+  vertical-align: middle;
+}
+table.data thead th {
+  font-family: var(--mono);
+  font-size: .66rem;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 500;
+  background: var(--sunk);
+  white-space: nowrap;
+}
+table.data tbody tr:last-child td { border-bottom: none; }
+table.data tbody tr { transition: background .14s var(--ease); }
+table.data tbody tr:hover { background: var(--sunk); }
+
+/* --------------------------------------------------------------------------
+   Entrance motion — one orchestrated sequence, not scattered effects
+   -------------------------------------------------------------------------- */
+
+.rise { animation: rise .5s var(--ease-out) both; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.fade { animation: fade .4s var(--ease) both; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+.spin {
+  width: 13px; height: 13px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: spin .7s linear infinite;
+  flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.pulse-dot { animation: pulse 2.4s var(--ease) infinite; }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+  50% { box-shadow: 0 0 0 5px transparent; opacity: .65; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+  .dawn::before { animation: none; }
+}
+
+/* --------------------------------------------------------------------------
+   Shell
+   -------------------------------------------------------------------------- */
+
+.shell { display: flex; min-height: 100vh; }
+
+.rail {
+  width: var(--rail);
+  flex: none;
+  border-right: 1px solid var(--line);
+  background: var(--ground-deep);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  color: var(--ink-soft);
+  font-size: .87rem;
+  font-weight: 500;
+  position: relative;
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+.nav-link:hover { background: var(--sunk); color: var(--ink); }
+.nav-link[data-active="true"] { background: var(--brand-wash); color: var(--brand); }
+.nav-link[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: -12px; top: 50%;
+  width: 3px; height: 18px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
+  transform: translateY(-50%);
+}
+
+.page { flex: 1; min-width: 0; }
+.page-head { padding: 30px 34px 26px; border-bottom: 1px solid var(--line); }
+.page-body { padding: 26px 34px 60px; display: flex; flex-direction: column; gap: 26px; }
+
+@media (max-width: 860px) {
+  .rail { display: none; }
+  .page-head { padding: 22px 18px 18px; }
+  .page-body { padding: 18px 18px 48px; }
+}
+
+/* Avatar */
+.avatar {
+  width: 32px; height: 32px;
+  border-radius: 999px;
+  background: var(--brand-wash);
+  color: var(--brand);
+  display: grid;
+  place-items: center;
+  font-size: .74rem;
+  font-weight: 600;
+  flex: none;
+  font-family: var(--mono);
+  letter-spacing: .02em;
+}
+.avatar-lg { width: 46px; height: 46px; font-size: .95rem; }
+
+.empty {
+  padding: 44px 20px;
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: .88rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
