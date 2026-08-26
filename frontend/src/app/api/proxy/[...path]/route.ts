@@ -55,6 +55,22 @@ async function forward(request: NextRequest) {
   const out = new Headers();
   const contentType = response.headers.get("content-type");
   if (contentType) out.set("content-type", contentType);
+
+  // Relay the redirect target. Without this a 302 from Django arrives at the
+  // browser with no Location and renders as a blank page — which is exactly
+  // what the GitLab sign-in did. Django's own targets are paths rooted at
+  // *its* origin, so they are rewritten back inside the proxy prefix;
+  // absolute URLs (GitLab's authorize endpoint) pass through untouched.
+  const location = response.headers.get("location");
+  if (location) {
+    out.set(
+      "location",
+      location.startsWith("/") && !location.startsWith(PREFIX)
+        ? `${PREFIX}${location}`
+        : location,
+    );
+  }
+
   for (const [key, value] of response.headers.entries()) {
     if (key.toLowerCase() === "set-cookie") out.append("set-cookie", value);
   }

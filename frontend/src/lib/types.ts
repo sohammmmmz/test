@@ -22,7 +22,6 @@ export type AuthConfig = {
   oauth_configured: boolean;
   service_token_configured: boolean;
   group_configured: boolean;
-  demo_mode: boolean;
   roles: { value: string; label: string }[];
   departments: { value: string; label: string }[];
 };

@@ -175,8 +175,6 @@ def refresh_user_token(token: GitLabToken) -> GitLabToken:
 
 def get_user_client(user: User):
     """A client acting as ``user``, refreshing first if the token has aged out."""
-    if settings.DEMO_MODE:
-        return user_client("demo")
     try:
         token = user.gitlab_token
     except GitLabToken.DoesNotExist as exc:

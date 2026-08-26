@@ -22,7 +22,9 @@ const BACKEND = process.env.BACKEND_INTERNAL_URL ?? "http://localhost:8000";
 /** Refresh this far ahead of expiry so it never dies mid-request. */
 const LEEWAY_SECONDS = 120;
 
-const PUBLIC = ["/sign-in", "/api/proxy/api/auth/"];
+// /auth/callback must be reachable signed-out: a failed authorization lands
+// there with no cookies, and bouncing it to /sign-in would lose the reason.
+const PUBLIC = ["/sign-in", "/auth/callback", "/api/proxy/api/auth/"];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC.some((p) => pathname.startsWith(p));

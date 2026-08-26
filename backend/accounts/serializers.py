@@ -24,12 +24,3 @@ class OnboardingSerializer(serializers.Serializer):
     role = serializers.ChoiceField(choices=Role.choices)
     department = serializers.ChoiceField(choices=Department.choices)
     job_title = serializers.CharField(required=False, allow_blank=True, max_length=255)
-
-
-class DemoSignInSerializer(serializers.Serializer):
-    """Demo mode only — stand in for the OAuth round trip."""
-
-    name = serializers.CharField(max_length=120)
-    role = serializers.ChoiceField(choices=Role.choices)
-    department = serializers.ChoiceField(choices=Department.choices)
-    job_title = serializers.CharField(required=False, allow_blank=True, max_length=255)

@@ -27,7 +27,6 @@ python3 -m venv .venv
   "psycopg[binary]" django-environ PyJWT requests
 cd backend
 ../.venv/bin/python manage.py migrate
-../.venv/bin/python manage.py seed_demo      # optional sample data
 ../.venv/bin/python manage.py runserver 8000
 
 # 3. Frontend
@@ -35,15 +34,6 @@ cd frontend && npm install && npm run dev
 ```
 
 Then open http://localhost:3000.
-
-### Demo mode
-
-`DEMO_MODE=true` in `.env` (the default here) lets the whole product be driven
-without a GitLab application: repositories, milestones and issues are simulated
-locally and a second sign-in door appears. Nothing reaches a real repository.
-Turn it off before pointing this at anything real.
-
----
 
 ## Connecting real GitLab
 
@@ -55,7 +45,7 @@ Four values in `.env`:
 | `GITLAB_SERVICE_TOKEN` | A **group access token** with the `api` scope. Performs every write. |
 | `GITLAB_GROUP_ID` | The group new repositories are created under. |
 
-Then set `DEMO_MODE=false` and restart Django.
+Restart Django once they are in place.
 
 **Why two credentials.** OAuth access tokens live two hours and refreshing
 rotates the refresh token, so nothing shared can depend on one person staying
@@ -68,9 +58,11 @@ token owns every write.
 
 ### Signing in
 
-Everyone signs in through GitLab, because assigning an issue needs a real
-`gitlab_user_id` — somebody who exists only in this database can never be given
-work. GitLab cannot tell us which of the two roles a person holds or which
+Everyone signs in through GitLab — there is deliberately no second door,
+because assigning an issue needs a real `gitlab_user_id` and somebody who
+exists only in this database could never be given work. The handshake runs in
+a popup, so a failed authorization returns to the sign-in screen rather than a
+cold start. GitLab cannot tell us which of the two roles a person holds or which
 department they are in, so a first sign-in lands on a short onboarding step.
 
 - **Project owners** create projects, build teams and run the morning meeting.
@@ -156,7 +148,7 @@ own outstanding items also surface as alerts on the dashboard.
 ```
 backend/
   accounts/    users, roles, GitLab OAuth, JWT rotation
-  gitlab_api/  REST client, OAuth flow, demo stand-in
+  gitlab_api/  REST client and OAuth flow
   teams/       an owner's standing roster
   projects/    projects, repositories, branches, documents, readiness
   planning/    milestones and tasks, two-way with GitLab

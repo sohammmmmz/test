@@ -1,30 +1,25 @@
-"""Choosing which GitLab to talk to.
+"""Choosing which credential talks to GitLab.
 
-Every call site asks for a client here rather than importing one directly, so
-demo mode is a single decision made in one place instead of a conditional
-scattered through the services.
+Call sites ask here rather than importing a client directly, so the split
+between the two credentials is made in one place: the service token performs
+every write, and a user's OAuth token is only ever used to act as that person.
 """
 
 from django.conf import settings
 
 from .client import GitLabClient
-from .demo import DemoGitLabClient
 
 
-def service_client():
+def service_client() -> GitLabClient:
     """The credential that performs every write."""
-    if settings.DEMO_MODE:
-        return DemoGitLabClient.for_service()
     return GitLabClient.for_service()
 
 
-def user_client(access_token: str):
+def user_client(access_token: str) -> GitLabClient:
     """A client acting as one person, for visibility checks only."""
-    if settings.DEMO_MODE:
-        return DemoGitLabClient.for_user(access_token)
     return GitLabClient.for_user(access_token)
 
 
 def is_configured() -> bool:
-    """True when real GitLab work is possible."""
-    return bool(settings.GITLAB_SERVICE_TOKEN) or settings.DEMO_MODE
+    """True when GitLab work is possible at all."""
+    return bool(settings.GITLAB_SERVICE_TOKEN)

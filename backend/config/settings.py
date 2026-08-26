@@ -162,11 +162,6 @@ WORKING_WEEKDAYS = env.list("WORKING_WEEKDAYS", cast=int, default=[0, 1, 2, 3, 4
 # A todo that has been carried this many days starts showing its age.
 TODO_STALE_AFTER_DAYS = env.int("TODO_STALE_AFTER_DAYS", default=3)
 
-# Demo mode lets the app be driven without a GitLab application configured:
-# repositories, milestones and issues are simulated locally. Never on in
-# production — it is how the UI is demonstrated before credentials exist.
-DEMO_MODE = env.bool("DEMO_MODE", default=False)
-
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

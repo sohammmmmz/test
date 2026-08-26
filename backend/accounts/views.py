@@ -1,16 +1,16 @@
 """Sign in, finish your profile, sign out.
 
-One way in — GitLab OAuth — ending in a JWT pair held in httpOnly cookies. Demo
-mode adds a second door that skips GitLab entirely, so the product can be shown
-before an OAuth application exists.
+One way in: GitLab OAuth, ending in a JWT pair held in httpOnly cookies.
+Assigning an issue needs a real GitLab account id, so there is deliberately no
+second door — somebody who existed only in this database could never be given
+work.
 """
 
 import logging
-import secrets
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.shortcuts import redirect
-from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
 from rest_framework.decorators import (
@@ -32,8 +32,8 @@ from gitlab_api.oauth import (
 
 from .authentication import REFRESH_COOKIE
 from .cookies import clear_auth_cookies, set_auth_cookies
-from .models import Department, Role, User
-from .serializers import DemoSignInSerializer, OnboardingSerializer, UserSerializer
+from .models import Department, Role
+from .serializers import OnboardingSerializer, UserSerializer
 from .tokens import REFRESH, TokenError, decode, issue_pair, revoke_session, rotate
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,6 @@ def auth_config(request):
         "oauth_configured": is_oauth_configured(),
         "service_token_configured": bool(settings.GITLAB_SERVICE_TOKEN),
         "group_configured": bool(settings.GITLAB_GROUP_ID),
-        "demo_mode": settings.DEMO_MODE,
         "roles": [{"value": v, "label": l} for v, l in Role.choices],
         "departments": [{"value": v, "label": l} for v, l in Department.choices],
     })
@@ -74,18 +73,26 @@ def gitlab_login(request):
     return redirect(url)
 
 
+def _land(**params):
+    """Send the browser to the app's own callback page.
+
+    Always the same page, whether the flow ran in a popup or a full tab: that
+    page is the only thing that can tell which, so it either messages the
+    window that opened it or navigates on its own.
+    """
+    return redirect(f"{settings.FRONTEND_URL}/auth/callback?{urlencode(params)}")
+
+
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def gitlab_callback(request):
-    frontend = settings.FRONTEND_URL
-
     error = request.GET.get("error")
     if error:
-        return redirect(f"{frontend}/sign-in?error={request.GET.get('error_description', error)}")
+        return _land(status="error", error=request.GET.get("error_description", error))
 
     code, raw_state = request.GET.get("code"), request.GET.get("state")
     if not code or not raw_state:
-        return redirect(f"{frontend}/sign-in?error=missing_code_or_state")
+        return _land(status="error", error="missing_code_or_state")
 
     try:
         state = consume_state(raw_state)
@@ -93,7 +100,7 @@ def gitlab_callback(request):
         user, _created = upsert_user_from_token(payload)
     except GitLabError as exc:
         logger.warning("GitLab sign-in failed: %s", exc)
-        return redirect(f"{frontend}/sign-in?error=oauth_failed")
+        return _land(status="error", error="oauth_failed")
 
     destination = state.redirect_to or "/"
     if not destination.startswith("/"):
@@ -101,54 +108,14 @@ def gitlab_callback(request):
         destination = "/"
     if not user.is_onboarded:
         destination = "/welcome"
+    elif not user.is_owner and destination == "/":
+        # Members have no dashboard; sending them to one bounces them straight
+        # back out again.
+        destination = "/my-day"
 
-    response = redirect(f"{frontend}{destination}")
-    return set_auth_cookies(response, issue_pair(user))
-
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def demo_sign_in(request):
-    """Create a signed-in user without GitLab. Demo mode only."""
-    if not settings.DEMO_MODE:
-        return Response(
-            {"detail": "Demo sign-in is switched off. Sign in with GitLab instead."},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
-    serializer = DemoSignInSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-    data = serializer.validated_data
-
-    name = data["name"].strip()
-    handle = "".join(c for c in name.lower().replace(" ", "-") if c.isalnum() or c == "-")
-    handle = handle or f"demo-{secrets.token_hex(3)}"
-
-    user = User.objects.filter(gitlab_username=handle).first()
-    if user is None:
-        # A stable pseudo GitLab id, so demo users behave like real ones
-        # everywhere downstream — assignment included.
-        highest = User.objects.order_by("-gitlab_user_id").values_list(
-            "gitlab_user_id", flat=True
-        ).first()
-        user = User.objects.create(
-            username=handle,
-            email=f"{handle}@demo.local",
-            first_name=name.split(" ")[0][:150],
-            last_name=" ".join(name.split(" ")[1:])[:150],
-            gitlab_user_id=int(highest or 9000) + 1,
-            gitlab_username=handle,
-        )
-        user.set_unusable_password()
-        user.save(update_fields=["password"])
-
-    user.complete_onboarding(
-        role=data["role"], department=data["department"],
-        job_title=data.get("job_title", ""),
-    )
-    user.last_login_at = timezone.now()
-    user.save(update_fields=["last_login_at"])
-    return _signed_in(user, http_status=status.HTTP_201_CREATED)
+    # The cookies ride on this redirect, so the opener sees a signed-in session
+    # the moment the popup lands.
+    return set_auth_cookies(_land(status="ok", next=destination), issue_pair(user))
 
 
 @api_view(["POST"])
