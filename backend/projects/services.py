@@ -70,35 +70,70 @@ def _repo_fields(payload: dict) -> dict:
     }
 
 
+def link_existing_repo(reference: str | int, *, client=None) -> dict:
+    """Fetch a repository the owner picked, refusing one already spoken for.
+
+    A repository backs exactly one project. Letting two projects share one would
+    make every milestone and issue ambiguous the moment both were planned.
+    """
+    client = client or service_client()
+    try:
+        payload = client.get_project(reference)
+    except GitLabError as exc:
+        raise ProjectCreationError(
+            f"That repository could not be read: {exc}. Check the path, and that "
+            "GITLAB_SERVICE_TOKEN can see it."
+        ) from exc
+
+    taken = (
+        GitLabRepo.objects.filter(gitlab_project_id=payload["id"])
+        .select_related("project").first()
+    )
+    if taken is not None:
+        raise ProjectCreationError(
+            f"{payload.get('path_with_namespace')} already backs the project "
+            f"'{taken.project.name}'. A repository can only back one."
+        )
+    return payload
+
+
 def create_project(*, name: str, owner, description: str = "", team=None,
                    member_users=(), status: str | None = None,
-                   started_on=None, target_end_on=None) -> tuple[Project, list[str]]:
+                   started_on=None, target_end_on=None,
+                   repo_reference: str | int | None = None,
+                   documentation_branch: str | None = None) -> tuple[Project, list[str]]:
     """Create the project and everything GitLab needs to back it.
 
-    Returns the project and a list of warnings — things that did not work but
-    did not invalidate the project.
+    ``repo_reference`` links a repository that already exists; without it a new
+    one is created. Returns the project and a list of warnings — things that did
+    not work but did not invalidate the project.
     """
     client = service_client()
     warnings: list[str] = []
     slug = unique_slug(name)
 
-    # 1. The repository, initialised so a default branch exists.
-    try:
-        payload = client.create_project(
-            name,
-            path=slug,
-            namespace_id=settings.GITLAB_GROUP_ID or None,
-            description=description,
-        )
-    except GitLabError as exc:
-        raise ProjectCreationError(
-            f"GitLab would not create the repository: {exc}. "
-            "A project with that path may already exist in the group."
-        ) from exc
+    # 1. The repository. Linked if one was chosen, otherwise created —
+    #    initialised, because a project with no commits has no branches and
+    #    there would be nothing to cut a member branch from.
+    if repo_reference:
+        payload = link_existing_repo(repo_reference, client=client)
+        created_by_app = False
+    else:
+        try:
+            payload = client.create_project(
+                name,
+                path=slug,
+                namespace_id=settings.GITLAB_GROUP_ID or None,
+                description=description,
+            )
+        except GitLabError as exc:
+            raise ProjectCreationError(
+                f"GitLab would not create the repository: {exc}. "
+                "A project with that path may already exist in the group."
+            ) from exc
+        created_by_app = True
 
     fields = _repo_fields(payload)
-    repo_id = fields["gitlab_project_id"]
-    default_branch = fields["default_branch"]
 
     with transaction.atomic():
         project = Project.objects.create(
@@ -106,7 +141,12 @@ def create_project(*, name: str, owner, description: str = "", team=None,
             status=status or Project._meta.get_field("status").default,
             started_on=started_on, target_end_on=target_end_on,
         )
-        GitLabRepo.objects.create(project=project, **fields)
+        GitLabRepo.objects.create(
+            project=project,
+            created_by_app=created_by_app,
+            documentation_branch=(documentation_branch or "").strip(),
+            **fields,
+        )
 
     # 2 & 3. Members onto the repository, then a branch each.
     for user in member_users:
@@ -184,10 +224,15 @@ def remove_member(project: Project, user, *, client=None) -> None:
 
 
 def ensure_documentation_branch(project: Project, *, client=None) -> bool:
-    """Make sure the documentation branch exists. True if it already did."""
+    """Make sure the documentation branch exists. True if it already did.
+
+    An existing branch is used as it stands — a linked repository may already
+    keep its docs somewhere, and rearranging somebody's repository to suit this
+    tool would be the wrong way round.
+    """
     client = client or service_client()
     repo = project.repo
-    branch = settings.DOCUMENTATION_BRANCH
+    branch = repo.docs_branch
 
     if client.branch_exists(repo.gitlab_project_id, branch):
         if not repo.documentation_branch_ready:

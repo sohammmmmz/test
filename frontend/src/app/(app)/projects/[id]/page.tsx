@@ -145,7 +145,7 @@ export default async function ProjectPage({
             projectId={project.id}
             documents={project.documents}
             canEdit={user.is_owner}
-            branch={project.repo?.documentation_branch_ready ? "documentation" : "documentation"}
+            branch={project.repo?.docs_branch ?? "documentation"}
           />
         </section>
       </div>

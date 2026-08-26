@@ -5,16 +5,18 @@ import logging
 from django.contrib.auth import get_user_model
 from django.db.models import Q
 from rest_framework import status, viewsets
-from rest_framework.decorators import action
+from django.conf import settings
+from rest_framework.decorators import action, api_view
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
 from accounts.permissions import IsOwner
 from gitlab_api.exceptions import GitLabError
+from gitlab_api.gateway import service_client
 from teams.models import Team
 
 from .documents import DocumentUploadError, upload_document
-from .models import Project
+from .models import GitLabRepo, Project
 from .serializers import (
     DocumentSerializer,
     DocumentUploadSerializer,
@@ -23,10 +25,88 @@ from .serializers import (
     ProjectListSerializer,
     ProjectUpdateSerializer,
 )
-from .services import ProjectCreationError, add_member, create_project, delete_project, remove_member
+from .services import (
+    ProjectCreationError,
+    add_member,
+    create_project,
+    delete_project,
+    remove_member,
+)
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+
+@api_view(["GET"])
+def available_repos(request):
+    """Repositories that could back a project, and which are already taken.
+
+    Searched with the service token rather than the caller's, because that is
+    the credential that will do the writing — everything listed here is
+    guaranteed to work once linked, with no per-repository setup.
+    """
+    if not settings.GITLAB_SERVICE_TOKEN:
+        return Response({
+            "repos": [],
+            "detail": "GITLAB_SERVICE_TOKEN is not set, so no repositories can be listed.",
+        })
+
+    query = (request.query_params.get("search") or "").strip()
+    try:
+        rows = service_client().search_projects(query)
+    except GitLabError as exc:
+        return Response({"repos": [], "detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+    taken = {
+        r["gitlab_project_id"]: r["project__name"]
+        for r in GitLabRepo.objects.values("gitlab_project_id", "project__name")
+    }
+    return Response({
+        "query": query,
+        "repos": [
+            {
+                "gitlab_project_id": r["id"],
+                "name": r.get("name", ""),
+                "path_with_namespace": r.get("path_with_namespace", ""),
+                "web_url": r.get("web_url", ""),
+                "default_branch": r.get("default_branch"),
+                "visibility": r.get("visibility", ""),
+                "last_activity_at": r.get("last_activity_at"),
+                "linked_to": taken.get(r["id"]),
+            }
+            for r in rows
+        ],
+    })
+
+
+@api_view(["GET"])
+def repo_branches(request):
+    """Branches on a repository, so the docs branch can be picked not typed.
+
+    A linked repository may already keep its documentation somewhere; choosing
+    that branch is better than making a second one beside it.
+    """
+    reference = request.query_params.get("repo")
+    if not reference:
+        return Response({"branches": []})
+
+    try:
+        target = int(reference)
+    except (TypeError, ValueError):
+        target = reference
+
+    try:
+        rows = service_client().list_branches(target)
+    except GitLabError as exc:
+        return Response({"branches": [], "detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+    return Response({
+        "default": settings.DOCUMENTATION_BRANCH,
+        "branches": [
+            {"name": b.get("name", ""), "is_default": bool(b.get("default"))}
+            for b in rows
+        ],
+    })
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -84,6 +164,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 status=data.get("status") or None,
                 started_on=data.get("started_on"),
                 target_end_on=data.get("target_end_on"),
+                repo_reference=(data.get("repo_reference") or "").strip() or None,
+                documentation_branch=(data.get("documentation_branch") or "").strip() or None,
             )
         except ProjectCreationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)

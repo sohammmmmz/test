@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { OAUTH_MESSAGE, gitlabLoginUrl } from "@/lib/config";
+import { OAUTH_CHANNEL, type OAuthResult, gitlabLoginUrl } from "@/lib/config";
 import type { AuthConfig } from "@/lib/types";
 
 const POPUP_WIDTH = 560;
 const POPUP_HEIGHT = 720;
+
+/** How often the backstop asks whether the session has appeared. */
+const POLL_MS = 1500;
 
 /**
  * The way in.
@@ -20,70 +23,103 @@ const POPUP_HEIGHT = 720;
  * If the browser blocks the popup we fall back to a full navigation, which is
  * the same flow in a different window.
  */
-export function SignIn({ config, error, next }: {
+export function SignIn({ config, error, next, invite, team }: {
   config: AuthConfig | null;
   error: string | null;
   next: string;
+  /** Set when arriving from a team invite link. */
+  invite?: string | null;
+  /** The team the invite joins, for the heading. */
+  team?: string | null;
 }) {
   const router = useRouter();
-  const [connecting, setConnecting] = useState(false);
+  const [connecting, setConnectingRaw] = useState(false);
+  const setConnecting = (v: boolean) => {
+    console.log('PROBE setConnecting(' + v + ') from:\n' + new Error().stack);
+    setConnectingRaw(v);
+  };
   const [failure, setFailure] = useState<string | null>(null);
   const popup = useRef<Window | null>(null);
   const watcher = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const ready = config?.oauth_configured ?? false;
 
-  // TEMP PROBE
-  useEffect(() => {
-    (window as any).__mounts = ((window as any).__mounts || 0) + 1;
-    return () => { (window as any).__unmounts = ((window as any).__unmounts || 0) + 1; };
-  }, []);
-  useEffect(() => { (window as any).__connecting = connecting; }, [connecting]);
-
-  const stopWatching = useCallback(() => {
+  const stop = useCallback(() => {
     if (watcher.current) {
       clearInterval(watcher.current);
       watcher.current = null;
     }
   }, []);
 
+  const finish = useCallback((result: OAuthResult) => {
+    stop();
+    popup.current?.close();
+    popup.current = null;
+
+    if (result.status === "ok") {
+      // Leave the spinner up: the navigation is the completion, and flipping
+      // the button back first reads as a failure.
+      router.replace(result.next || "/");
+      router.refresh();
+      return;
+    }
+    setConnecting(false);
+    setFailure(messageFor(result.error));
+  }, [router, stop]);
+
   useEffect(() => {
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) return;
-      const data = event.data;
-      if (!data || data.source !== OAUTH_MESSAGE) return;
+    if (!connecting) return;
 
-      stopWatching();
-      popup.current?.close();
-      popup.current = null;
-
-      if (data.status === "ok") {
-        // Leave the spinner up: the navigation is the completion, and
-        // flipping the button back first reads as a failure.
-        router.replace(data.next || "/");
-        router.refresh();
-        return;
-      }
-
-      setConnecting(false);
-      setFailure(messageFor(data.error));
+    // Three ways of hearing that the popup finished. GitLab severs the opener
+    // link (COOP: same-origin), so the obvious one — postMessage from the
+    // popup — cannot be relied on; these can.
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(OAUTH_CHANNEL);
+      channel.onmessage = (event) => finish(event.data as OAuthResult);
+    } catch {
+      // Unsupported. The poll below still completes the flow.
     }
 
-    window.addEventListener("message", onMessage);
+    function onStorage(event: StorageEvent) {
+      if (event.key !== OAUTH_CHANNEL || !event.newValue) return;
+      try {
+        finish(JSON.parse(event.newValue) as OAuthResult);
+      } catch {
+        // Malformed; the poll will settle it.
+      }
+    }
+    window.addEventListener("storage", onStorage);
+
+    // The backstop, and the only part that cannot fail: the cookies are set
+    // the moment GitLab redirects back, so a session appearing *is* success,
+    // whatever the browser did to our window handles.
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch("/api/proxy/api/auth/me", { cache: "no-store" });
+        if (!res.ok) return;
+        const me = await res.json();
+        finish({ status: "ok", next: me.is_onboarded ? (me.is_owner ? "/" : "/my-day") : "/welcome" });
+      } catch {
+        // Backend momentarily unreachable; try again on the next tick.
+      }
+    }, POLL_MS);
+    watcher.current = poll;
+
     return () => {
-      window.removeEventListener("message", onMessage);
-      stopWatching();
+      window.removeEventListener("storage", onStorage);
+      channel?.close();
+      clearInterval(poll);
     };
-  }, [router, stopWatching]);
+  }, [connecting, finish]);
 
   function connect() {
-    console.log('PROBE connect() called');
     setFailure(null);
     setConnecting(true);
 
-    const url = gitlabLoginUrl(next);
-    // Centred on the window the person is actually looking at, not on the
-    // primary display — those differ constantly on a desk with two screens.
+    const url = gitlabLoginUrl(next, invite);
+    // Centred on the window the person is looking at, not the primary display
+    // — those differ constantly on a desk with two screens.
     const left = window.screenX + Math.max(0, (window.outerWidth - POPUP_WIDTH) / 2);
     const top = window.screenY + Math.max(0, (window.outerHeight - POPUP_HEIGHT) / 2);
 
@@ -93,27 +129,21 @@ export function SignIn({ config, error, next }: {
       `popup=yes,width=${POPUP_WIDTH},height=${POPUP_HEIGHT},left=${Math.round(left)},top=${Math.round(top)}`,
     );
 
-    console.log('PROBE window.open returned', opened ? 'a window' : 'null');
     if (!opened) {
-      // Blocked. The flow still works in this tab, so use it rather than
-      // telling somebody to go and change a browser setting.
+      // Blocked. The flow works perfectly well in this tab, so use it rather
+      // than telling somebody to go and change a browser setting.
       window.location.href = url;
       return;
     }
-
     popup.current = opened;
     opened.focus();
+  }
 
-    // A popup closed by hand sends no message, and without this the button
-    // would spin until the page was reloaded.
-    watcher.current = setInterval(() => {
-      console.log('PROBE tick closed=', popup.current?.closed);
-      if (popup.current?.closed) {
-        stopWatching();
-        popup.current = null;
-        setConnecting(false);
-      }
-    }, 500);
+  function cancel() {
+    stop();
+    popup.current?.close();
+    popup.current = null;
+    setConnecting(false);
   }
 
   return (
@@ -128,11 +158,24 @@ export function SignIn({ config, error, next }: {
             <Mark />
             <span className="eyebrow">Morning Ledger</span>
           </div>
-          <h1>Plan the day before the day plans you.</h1>
-          <p className="soft" style={{ fontSize: ".95rem", maxWidth: "40ch" }}>
-            Milestones and tasks live in GitLab. The standup, the todo lists and
-            what carries over live here.
-          </p>
+          {team ? (
+            <>
+              <h1>Join {team}.</h1>
+              <p className="soft" style={{ fontSize: ".95rem", maxWidth: "42ch" }}>
+                Signing in with GitLab adds you to the team and sets up your
+                daily list. We need your GitLab account because that is what
+                tasks are assigned to.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1>Plan the day before the day plans you.</h1>
+              <p className="soft" style={{ fontSize: ".95rem", maxWidth: "40ch" }}>
+                Milestones and tasks live in GitLab. The standup, the todo lists
+                and what carries over live here.
+              </p>
+            </>
+          )}
         </div>
 
         {(error || failure) && <Notice>{failure ?? error}</Notice>}
@@ -147,13 +190,28 @@ export function SignIn({ config, error, next }: {
                 style={{ width: "100%" }}
               >
                 {connecting && <span className="spin" />}
-                {connecting ? "Waiting for GitLab…" : "Continue with GitLab"}
-              </button>
-              <p className="faint" style={{ fontSize: ".78rem", textAlign: "center" }}>
                 {connecting
-                  ? "Finish signing in in the GitLab window."
-                  : "Opens a GitLab window to authorize this app."}
-              </p>
+                  ? "Waiting for GitLab…"
+                  : team
+                    ? "Join with GitLab"
+                    : "Continue with GitLab"}
+              </button>
+              {connecting ? (
+                <p className="faint" style={{ fontSize: ".78rem", textAlign: "center" }}>
+                  Finish signing in in the GitLab window.{" "}
+                  <button
+                    onClick={cancel}
+                    className="btn btn-ghost btn-sm"
+                    style={{ padding: 0, textDecoration: "underline" }}
+                  >
+                    Cancel
+                  </button>
+                </p>
+              ) : (
+                <p className="faint" style={{ fontSize: ".78rem", textAlign: "center" }}>
+                  Opens a GitLab window to authorize this app.
+                </p>
+              )}
             </>
           ) : (
             <div className="stack gap-2">

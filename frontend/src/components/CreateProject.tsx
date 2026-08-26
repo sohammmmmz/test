@@ -1,8 +1,11 @@
 "use client";
 
+import { Modal } from "./Modal";
+
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import type { Team } from "@/lib/types";
+import { useEffect, useState } from "react";
+import { RepoPicker } from "./RepoPicker";
+import type { AvailableRepo, RepoBranch, Team } from "@/lib/types";
 
 /**
  * Creating a project creates a repository, so the form says so plainly. The
@@ -18,6 +21,42 @@ export function CreateProject({ teams }: { teams: Team[] }) {
   const [picked, setPicked] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+
+  // Link an existing repository, or create a fresh one.
+  const [source, setSource] = useState<"new" | "existing">("new");
+  const [repo, setRepo] = useState<AvailableRepo | null>(null);
+  const [branches, setBranches] = useState<RepoBranch[]>([]);
+  const [docsBranch, setDocsBranch] = useState("");
+  const [newBranch, setNewBranch] = useState(true);
+
+  // A linked repository may already keep its docs somewhere, so offer what is
+  // there before offering to make another branch beside it.
+  useEffect(() => {
+    if (!repo) {
+      setBranches([]);
+      setDocsBranch("");
+      setNewBranch(true);
+      return;
+    }
+    let live = true;
+    fetch(`/api/proxy/api/projects/repo-branches/?repo=${repo.gitlab_project_id}`)
+      .then((r) => (r.ok ? r.json() : { branches: [] }))
+      .then((data) => {
+        if (!live) return;
+        const rows: RepoBranch[] = data.branches ?? [];
+        setBranches(rows);
+        const existing = rows.find((b) => b.name === (data.default ?? "documentation"));
+        if (existing) {
+          setNewBranch(false);
+          setDocsBranch(existing.name);
+        } else {
+          setNewBranch(true);
+          setDocsBranch(data.default ?? "documentation");
+        }
+      })
+      .catch(() => live && setBranches([]));
+    return () => { live = false; };
+  }, [repo]);
 
   const team = teams.find((t) => t.id === teamId);
   const candidates = team?.members.map((m) => m.user) ?? [];
@@ -42,6 +81,9 @@ export function CreateProject({ teams }: { teams: Team[] }) {
           team: teamId || null,
           member_ids: picked,
           status: "active",
+          repo_reference:
+            source === "existing" && repo ? String(repo.gitlab_project_id) : null,
+          documentation_branch: docsBranch.trim() || null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -68,18 +110,7 @@ export function CreateProject({ teams }: { teams: Team[] }) {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Create a project"
-      style={{
-        position: "fixed", inset: 0, zIndex: 50,
-        background: "rgba(8, 13, 25, .55)",
-        backdropFilter: "blur(3px)",
-        display: "grid", placeItems: "center", padding: 20,
-      }}
-      onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
-    >
+    <Modal label="Create a project" onClose={() => setOpen(false)}>
       <form
         onSubmit={submit}
         className="panel stack gap-4 rise"
@@ -88,10 +119,15 @@ export function CreateProject({ teams }: { teams: Team[] }) {
       >
         <div className="stack gap-1">
           <span className="eyebrow">New project</span>
-          <h2>Create a project and its repository</h2>
+          <h2>
+            {source === "existing"
+              ? "Create a project on a repository you have"
+              : "Create a project and its repository"}
+          </h2>
           <p className="faint" style={{ fontSize: ".82rem" }}>
-            The repository is created in your GitLab group, with a branch for each
-            person you pick and a documentation branch for the BRD.
+            {source === "existing"
+              ? "The repository is left as it is. Everyone you pick gets access and a branch of their own."
+              : "The repository is created in your GitLab group, with a branch for each person you pick and a documentation branch for the BRD."}
           </p>
         </div>
 
@@ -107,6 +143,105 @@ export function CreateProject({ teams }: { teams: Team[] }) {
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="Rebuild of the payment flow, targeting a 40% drop in cart abandonment." />
         </label>
+
+        <div className="stack gap-2">
+          <span style={{ fontSize: ".82rem", fontWeight: 500 }}>Repository</span>
+          <div className="row" role="radiogroup" aria-label="Which repository">
+            <button
+              type="button" role="radio" aria-checked={source === "new"}
+              onClick={() => { setSource("new"); setRepo(null); }}
+              className="btn btn-sm"
+              style={{
+                borderRadius: "var(--radius) 0 0 var(--radius)", borderRightWidth: 0,
+                ...(source === "new"
+                  ? { background: "var(--brand-wash)", color: "var(--brand)" } : {}),
+              }}
+            >
+              Create a new one
+            </button>
+            <button
+              type="button" role="radio" aria-checked={source === "existing"}
+              onClick={() => setSource("existing")}
+              className="btn btn-sm"
+              style={{
+                borderRadius: "0 var(--radius) var(--radius) 0",
+                ...(source === "existing"
+                  ? { background: "var(--brand-wash)", color: "var(--brand)" } : {}),
+              }}
+            >
+              Use one I have
+            </button>
+          </div>
+
+          {source === "existing" ? (
+            <RepoPicker value={repo} onPick={setRepo} />
+          ) : (
+            <p className="faint" style={{ fontSize: ".78rem" }}>
+              Created in your GitLab group, initialised so the member branches
+              have something to branch from.
+            </p>
+          )}
+        </div>
+
+        <div className="stack gap-2">
+          <span style={{ fontSize: ".82rem", fontWeight: 500 }}>
+            Documentation branch
+            <span className="faint" style={{ fontWeight: 400 }}>
+              {" "}— where the BRD and technical doc are committed
+            </span>
+          </span>
+
+          {source === "existing" && branches.length > 0 && (
+            <div className="row" role="radiogroup" aria-label="Documentation branch source">
+              <button
+                type="button" role="radio" aria-checked={!newBranch}
+                onClick={() => { setNewBranch(false); setDocsBranch(branches[0]?.name ?? ""); }}
+                className="btn btn-sm"
+                style={{
+                  borderRadius: "var(--radius) 0 0 var(--radius)", borderRightWidth: 0,
+                  ...(!newBranch
+                    ? { background: "var(--brand-wash)", color: "var(--brand)" } : {}),
+                }}
+              >
+                Use an existing branch
+              </button>
+              <button
+                type="button" role="radio" aria-checked={newBranch}
+                onClick={() => { setNewBranch(true); setDocsBranch("documentation"); }}
+                className="btn btn-sm"
+                style={{
+                  borderRadius: "0 var(--radius) var(--radius) 0",
+                  ...(newBranch
+                    ? { background: "var(--brand-wash)", color: "var(--brand)" } : {}),
+                }}
+              >
+                Make a new one
+              </button>
+            </div>
+          )}
+
+          {source === "existing" && branches.length > 0 && !newBranch ? (
+            <select className="field" value={docsBranch}
+                    onChange={(e) => setDocsBranch(e.target.value)}>
+              {branches.map((b) => (
+                <option key={b.name} value={b.name}>
+                  {b.name}{b.is_default ? " — default" : ""}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className="field"
+              value={docsBranch}
+              onChange={(e) => setDocsBranch(e.target.value)}
+              placeholder="documentation"
+            />
+          )}
+          <span className="faint" style={{ fontSize: ".74rem" }}>
+            Left blank, it uses <code className="mono">documentation</code>. An
+            existing branch is used as it stands — nothing is rearranged.
+          </span>
+        </div>
 
         {teams.length > 0 && (
           <label className="lbl">
@@ -160,12 +295,18 @@ export function CreateProject({ teams }: { teams: Team[] }) {
           <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" disabled={busy || !name.trim()}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={busy || !name.trim() || (source === "existing" && !repo)}
+          >
             {busy && <span className="spin" />}
-            {busy ? "Creating the repository" : "Create project"}
+            {busy
+              ? (source === "existing" ? "Linking the repository" : "Creating the repository")
+              : "Create project"}
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { InviteLinks } from "@/components/InviteLinks";
 import { TeamBuilder } from "@/components/TeamBuilder";
 import { Avatar, Empty, Thread } from "@/components/ui";
 import { api, ApiError, currentUser } from "@/lib/api";
@@ -71,6 +72,8 @@ export default async function TeamPage() {
               </div>
               <span className="eyebrow">{team.member_count} {plural(team.member_count, "member")}</span>
             </div>
+
+            <InviteLinks team={team} />
 
             <div className="grid cols-auto">
               {team.members.map((membership, index) => {

@@ -7,6 +7,8 @@ work.
 """
 
 import logging
+
+from django.utils import timezone
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -67,10 +69,40 @@ def auth_config(request):
 @permission_classes([AllowAny])
 def gitlab_login(request):
     try:
-        url, _state = build_authorize_url(redirect_to=request.GET.get("next", ""))
+        url, _state = build_authorize_url(
+            redirect_to=request.GET.get("next", ""),
+            invite_token=request.GET.get("invite", ""),
+        )
     except GitLabError as exc:
         return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
     return redirect(url)
+
+
+def _redeem_invite(token: str, user) -> bool:
+    """Put an invited person on the team they were invited to.
+
+    Returns True when the invite was good and this actually joined them. Their
+    role is set here rather than asked for: the link says which team and which
+    side of it they are on, so the onboarding step has nothing left to ask.
+    """
+    if not token:
+        return False
+
+    from teams.models import TeamInvite
+
+    invite = TeamInvite.objects.filter(token=token).select_related("team").first()
+    if invite is None or not invite.is_usable:
+        logger.info("Invite %s was not usable; signing in without joining", token[:8])
+        return False
+
+    invite.redeem(user)
+
+    # The link already says which side of the team they are on, so the role is
+    # settled and onboarding has only the department left to ask.
+    if not user.role:
+        user.role = Role.MEMBER
+        user.save(update_fields=["role"])
+    return True
 
 
 def _land(**params):
@@ -102,12 +134,19 @@ def gitlab_callback(request):
         logger.warning("GitLab sign-in failed: %s", exc)
         return _land(status="error", error="oauth_failed")
 
+    joined = _redeem_invite(state.invite_token, user)
+
     destination = state.redirect_to or "/"
     if not destination.startswith("/"):
         # Never redirect off-site on the strength of a query parameter.
         destination = "/"
     if not user.is_onboarded:
+        # Still owes us a department. The role is already set if they came
+        # through an invite, so that screen asks less of them.
         destination = "/welcome"
+    elif joined:
+        # Invited people are members; they have no dashboard to land on.
+        destination = "/my-day"
     elif not user.is_owner and destination == "/":
         # Members have no dashboard; sending them to one bounces them straight
         # back out again.

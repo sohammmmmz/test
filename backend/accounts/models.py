@@ -104,6 +104,9 @@ class OAuthState(models.Model):
 
     state = models.CharField(max_length=128, unique=True, db_index=True)
     redirect_to = models.CharField(max_length=512, blank=True)
+    # A team invite token, carried across the GitLab round trip so that signing
+    # in and joining the team are one act rather than two.
+    invite_token = models.CharField(max_length=64, blank=True)
     expires_at = models.DateTimeField()
     consumed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

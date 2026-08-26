@@ -79,10 +79,23 @@ cookies the current render reads *and* set them on the response.
 
 ### Creating a project
 
+Either link a repository you already have, or let one be created. Linking is
+the common case once a team exists, and the picker only offers repositories the
+service token can write to — so anything listed is guaranteed to work once
+linked. A repository already backing another project is shown but not
+selectable, because a repository backs exactly one project; sharing one would
+make every milestone ambiguous.
+
+The **documentation branch** is chosen per project rather than fixed globally.
+A repository being linked may already keep its docs somewhere established, and
+moving them to suit this tool would be the wrong way round — so pick that
+branch, or have a new one made.
+
 Six steps, in an order where each needs the last:
 
-1. Create the repository **initialised** — a GitLab project with no commits has
-   no branches, and there would be nothing to cut a member branch from.
+1. Create the repository **initialised**, or link the one you picked. A GitLab
+   project with no commits has no branches, and there would be nothing to cut a
+   member branch from.
 2. Add the chosen people to the repository as Developers.
 3. Cut a standing branch per member, named from their GitLab handle.
 4. Create the `documentation` branch, in the same commit that writes its README
@@ -106,6 +119,21 @@ so the board can never show a task that is not a real issue. Opening a project
 reconciles the other way, so an issue closed in GitLab's own UI is reflected
 here rather than silently overwritten — **and its todo is ticked off**, because
 they are the same piece of work.
+
+### Inviting people
+
+An owner cannot add somebody who has never signed in, and they will not sign in
+unless asked. An invite link breaks that circle: it carries the team through
+the GitLab handshake, so signing up and joining happen in one act. The person
+lands on the sign-in screen told which team they are joining, and comes out the
+other side a member of it.
+
+Links can be single-use or reusable, expire after 14 days, and can be turned
+off at any moment. The token is the credential, so it is the only thing that
+identifies an invite — treat a link like a password.
+
+An invite settles the role, so the profile step afterwards only asks for a
+department.
 
 ### The day
 
@@ -155,6 +183,8 @@ backend/
   daily/       todos, carry-forward, the morning meeting
 frontend/src/
   middleware.ts  silent token refresh, CSRF top-up, signed-out redirects
+  app/join/      the other end of an invite link
+  app/auth/      where GitLab's round trip lands
   app/(app)/     today, projects, team, morning meeting, my day
   components/    the round, the plan, todo lists, the carry-thread
   lib/           server-side Django client, deterministic formatting
@@ -171,6 +201,24 @@ trusts.
 
 Bricolage Grotesque for display, Public Sans for body, JetBrains Mono for dates,
 counts and branch names.
+
+Every route has a skeleton shaped like the page that is coming, rather than a
+spinner in an empty frame — a page that already looks like itself reads as
+faster, and nothing jumps when the data lands.
+
+## Notes on the GitLab sign-in
+
+The handshake runs in a popup. Two things about that are not obvious:
+
+- GitLab serves `Cross-Origin-Opener-Policy: same-origin`, which permanently
+  severs the opener link. `window.opener` is null on the way back and
+  `popup.closed` starts reporting true for a window that is plainly still open.
+  So the popup announces its result over `BroadcastChannel`, and the sign-in
+  screen also polls its own session as a backstop.
+- Django's CSRF cookie is minted on GET endpoints that the *server* calls
+  during rendering, so its `Set-Cookie` never reaches the browser. The
+  middleware tops it up once per session; without that every client-side write
+  fails with "CSRF cookie not set".
 
 ## Notes
 

@@ -175,6 +175,34 @@ class GitLabClient:
 
     # -- projects ----------------------------------------------------------
 
+    def search_projects(self, query: str = "", limit: int = 20) -> list[dict]:
+        """Repositories this credential can write to.
+
+        One request with `per_page` rather than a paged walk: this runs on every
+        keystroke, so GitLab does the filtering and the response stays bounded.
+        Enumerating a whole account and filtering locally is what makes a
+        picker feel slow.
+
+        `min_access_level=30` (Developer) because anything less cannot take the
+        commits this app makes — offering a repository we could not write to
+        would only fail later, at project creation.
+        """
+        params: dict[str, Any] = {
+            "membership": True,
+            "min_access_level": 30,
+            "order_by": "last_activity_at",
+            "sort": "desc",
+            "simple": True,
+            "archived": False,
+            "per_page": limit,
+        }
+        if query:
+            params["search"] = query
+            # Lets "acme/apollo" match on the namespace as well as the name.
+            params["search_namespaces"] = True
+        result = self.request("GET", "/projects", params=params)
+        return result if isinstance(result, list) else []
+
     def get_project(self, project: str | int) -> dict:
         ident = project if isinstance(project, int) else encode_path(project)
         return self.request("GET", f"/projects/{ident}")

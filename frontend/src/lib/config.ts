@@ -13,13 +13,27 @@ export const BACKEND_PUBLIC_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
 /** Where the popup starts the authorization-code flow. */
-export function gitlabLoginUrl(next = "/"): string {
-  return `${BACKEND_PUBLIC_URL}/api/auth/gitlab/login?next=${encodeURIComponent(next)}`;
+export function gitlabLoginUrl(next = "/", invite?: string | null): string {
+  const params = new URLSearchParams({ next });
+  if (invite) params.set("invite", invite);
+  return `${BACKEND_PUBLIC_URL}/api/auth/gitlab/login?${params}`;
 }
 
-/** What the popup posts back to the window that opened it. */
-export const OAUTH_MESSAGE = "morning-ledger:gitlab";
+/**
+ * How the popup tells the window that opened it that the flow finished.
+ *
+ * Not `window.opener.postMessage`, which is the obvious choice and does not
+ * work here: GitLab serves `Cross-Origin-Opener-Policy: same-origin`, so the
+ * moment the popup lands on gitlab.com the browser severs the opener link for
+ * good. `opener` is null on the way back and `popup.closed` starts reporting
+ * true for a window that is plainly still open.
+ *
+ * BroadcastChannel is same-origin and unaffected by any of that. The sign-in
+ * screen also polls its own session as a backstop, so the flow completes even
+ * where BroadcastChannel is unavailable.
+ */
+export const OAUTH_CHANNEL = "morning-ledger:gitlab";
 
 export type OAuthResult =
-  | { source: typeof OAUTH_MESSAGE; status: "ok"; next: string }
-  | { source: typeof OAUTH_MESSAGE; status: "error"; error: string };
+  | { status: "ok"; next: string }
+  | { status: "error"; error: string };

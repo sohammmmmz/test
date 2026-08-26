@@ -97,7 +97,10 @@ export type ProjectDetail = Project & {
     http_url_to_repo: string;
     default_branch: string;
     visibility: string;
+    documentation_branch: string;
+    docs_branch: string;
     documentation_branch_ready: boolean;
+    created_by_app: boolean;
   } | null;
   members: ProjectMember[];
   documents: ProjectDocument[];
@@ -263,3 +266,38 @@ export type Alerts = {
   pending: Todo[];
   overdue_tasks: Task[];
 };
+
+export type InviteDetails = {
+  valid: boolean;
+  reason: "active" | "expired" | "used up" | "revoked" | "unknown";
+  team: string;
+  invited_by: string;
+};
+
+export type TeamInvite = {
+  id: number;
+  token: string;
+  url: string;
+  note: string;
+  state: "active" | "expired" | "used up" | "revoked";
+  is_usable: boolean;
+  uses: number;
+  max_uses: number | null;
+  expires_at: string | null;
+  created_by_name: string;
+  created_at: string;
+};
+
+export type AvailableRepo = {
+  gitlab_project_id: number;
+  name: string;
+  path_with_namespace: string;
+  web_url: string;
+  default_branch: string | null;
+  visibility: string;
+  last_activity_at: string | null;
+  /** Set when another project already uses this repository. */
+  linked_to: string | null;
+};
+
+export type RepoBranch = { name: string; is_default: boolean };

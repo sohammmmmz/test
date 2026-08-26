@@ -22,9 +22,17 @@ const BACKEND = process.env.BACKEND_INTERNAL_URL ?? "http://localhost:8000";
 /** Refresh this far ahead of expiry so it never dies mid-request. */
 const LEEWAY_SECONDS = 120;
 
-// /auth/callback must be reachable signed-out: a failed authorization lands
-// there with no cookies, and bouncing it to /sign-in would lose the reason.
-const PUBLIC = ["/sign-in", "/auth/callback", "/api/proxy/api/auth/"];
+// All reachable signed-out, and each for its own reason: /auth/callback
+// because a failed authorization lands there with no cookies and bouncing it
+// would lose the reason; /join because somebody following an invite has no
+// account yet, which is the entire point of the link.
+const PUBLIC = [
+  "/sign-in",
+  "/auth/callback",
+  "/join/",
+  "/api/proxy/api/auth/",
+  "/api/proxy/api/teams/invites/",
+];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC.some((p) => pathname.startsWith(p));

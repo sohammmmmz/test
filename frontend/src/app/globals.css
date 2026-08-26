@@ -583,6 +583,61 @@ table.data tbody tr:hover { background: var(--sunk); }
 }
 
 /* --------------------------------------------------------------------------
+   Loading
+
+   Skeletons that match the shape of what is arriving, rather than a spinner in
+   an empty frame. A page that already looks like itself reads as faster than
+   one that looks like nothing, even when the wait is identical.
+
+   The sweep at the top is the one flourish: first light crossing the page,
+   which is the same idea the palette is built on.
+   -------------------------------------------------------------------------- */
+
+.sweep {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 2px;
+  z-index: 60;
+  background: linear-gradient(90deg,
+    transparent, var(--brand) 35%, var(--dawn-b) 55%, var(--brand) 70%, transparent);
+  background-size: 220% 100%;
+  animation: sweep 1.15s var(--ease) infinite;
+  transform-origin: left;
+}
+
+@keyframes sweep {
+  from { background-position: 120% 0; }
+  to   { background-position: -80% 0; }
+}
+
+.bone {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg,
+    var(--sunk) 0%, var(--line) 42%, var(--sunk) 84%);
+  background-size: 260% 100%;
+  animation: shimmer 1.5s var(--ease) infinite;
+}
+
+/* Staggered so a column of rows reads as a wave rather than a flat pulse —
+   the eye takes that as progress instead of a frozen frame. */
+.bone:nth-child(2) { animation-delay: .08s; }
+.bone:nth-child(3) { animation-delay: .16s; }
+.bone:nth-child(4) { animation-delay: .24s; }
+.bone:nth-child(5) { animation-delay: .32s; }
+.bone:nth-child(6) { animation-delay: .4s; }
+
+@keyframes shimmer {
+  from { background-position: 140% 0; }
+  to   { background-position: -40% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bone { animation: none; background: var(--sunk); }
+  .sweep { animation: none; background: var(--brand); opacity: .5; }
+}
+
+/* --------------------------------------------------------------------------
    Shell
    -------------------------------------------------------------------------- */
 

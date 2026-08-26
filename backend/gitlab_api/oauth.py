@@ -38,13 +38,14 @@ def is_oauth_configured() -> bool:
     return bool(settings.GITLAB_OAUTH_CLIENT_ID and settings.GITLAB_OAUTH_CLIENT_SECRET)
 
 
-def build_authorize_url(redirect_to: str = "") -> tuple[str, OAuthState]:
+def build_authorize_url(redirect_to: str = "", invite_token: str = "") -> tuple[str, OAuthState]:
     if not is_oauth_configured():
         raise GitLabError("GitLab sign-in is not configured on this server.")
 
     state = OAuthState.objects.create(
         state=secrets.token_urlsafe(32),
         redirect_to=redirect_to or "",
+        invite_token=invite_token or "",
         expires_at=timezone.now() + timedelta(seconds=STATE_TTL_SECONDS),
     )
     query = urlencode({

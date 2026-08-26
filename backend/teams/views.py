@@ -1,17 +1,28 @@
 """Teams: an owner's standing roster."""
 
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.decorators import action, api_view
+from rest_framework.decorators import (
+    action,
+    api_view,
+    authentication_classes,
+    permission_classes,
+)
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from accounts.permissions import IsOwner
 from accounts.serializers import UserSerializer
 
-from .models import Team, TeamMembership
+from .models import Team, TeamInvite, TeamMembership
 from .serializers import (
     AddMemberSerializer,
+    CreateInviteSerializer,
+    TeamInviteSerializer,
     TeamSerializer,
     TeamWriteSerializer,
 )
@@ -71,14 +82,57 @@ class TeamViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
+    @action(detail=True, methods=["get", "post"], url_path="invites")
+    def invites(self, request, pk=None):
+        """List this team's invite links, or mint a new one.
+
+        The link is what makes joining possible at all: somebody cannot be added
+        by hand until they exist here, and they will not exist until they have
+        signed in — which they will not do unless asked. The link carries the
+        team through the GitLab handshake so both happen at once.
+        """
+        team = self.get_object()
+
+        if request.method == "GET":
+            return Response(
+                TeamInviteSerializer(team.invites.select_related("created_by"), many=True).data
+            )
+
+        serializer = CreateInviteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        expires_at = None
+        if data.get("expires_in_days"):
+            expires_at = timezone.now() + timedelta(days=data["expires_in_days"])
+
+        invite = TeamInvite.objects.create(
+            team=team,
+            token=TeamInvite.new_token(),
+            created_by=request.user,
+            note=data.get("note", ""),
+            max_uses=data.get("max_uses"),
+            expires_at=expires_at,
+        )
+        return Response(TeamInviteSerializer(invite).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["delete"], url_path=r"invites/(?P<token>[-\w]+)")
+    def revoke_invite(self, request, pk=None, token=None):
+        """Turn a link off. Anyone holding it is refused from now on."""
+        team = self.get_object()
+        TeamInvite.objects.filter(team=team, token=token, revoked_at__isnull=True).update(
+            revoked_at=timezone.now()
+        )
+        return Response(
+            TeamInviteSerializer(team.invites.select_related("created_by"), many=True).data
+        )
+
     @action(detail=True, methods=["delete"], url_path=r"members/(?P<user_id>\d+)")
     def remove_member(self, request, pk=None, user_id=None):
         """Take somebody off the roster.
 
         Dated rather than deleted, so a past meeting still knows who was there.
         """
-        from django.utils import timezone
-
         team = self.get_object()
         TeamMembership.objects.filter(team=team, user_id=user_id, left_on__isnull=True).update(
             left_on=timezone.localdate()
@@ -112,3 +166,25 @@ def directory(request):
         people = people.exclude(pk__in=already)
 
     return Response(UserSerializer(people.order_by("first_name", "username")[:100], many=True).data)
+
+
+@api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def invite_details(request, token: str):
+    """What a join link points at, for the page that shows it.
+
+    Deliberately open: somebody following an invite is by definition not signed
+    in yet. It returns the team name and nothing else — enough to say what they
+    are joining, and no roster to enumerate.
+    """
+    invite = TeamInvite.objects.filter(token=token).select_related("team", "team__owner").first()
+    if invite is None:
+        return Response({"valid": False, "reason": "unknown"}, status=status.HTTP_404_NOT_FOUND)
+
+    return Response({
+        "valid": invite.is_usable,
+        "reason": invite.state,
+        "team": invite.team.name,
+        "invited_by": invite.team.owner.display_name,
+    })

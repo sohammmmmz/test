@@ -6,12 +6,15 @@ from .models import Document, GitLabRepo, Project, ProjectMember
 
 
 class GitLabRepoSerializer(serializers.ModelSerializer):
+    docs_branch = serializers.CharField(read_only=True)
+
     class Meta:
         model = GitLabRepo
         fields = [
             "gitlab_project_id", "path_with_namespace", "web_url",
             "http_url_to_repo", "default_branch", "visibility",
-            "documentation_branch_ready",
+            "documentation_branch", "docs_branch", "documentation_branch_ready",
+            "created_by_app",
         ]
 
 
@@ -72,6 +75,12 @@ class ProjectDetailSerializer(ProjectListSerializer):
 class ProjectCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
     description = serializers.CharField(required=False, allow_blank=True)
+    # A repository to link. Blank creates a new one.
+    repo_reference = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    # Which branch documents live on. Blank uses the configured default.
+    documentation_branch = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=255
+    )
     team = serializers.IntegerField(required=False, allow_null=True)
     member_ids = serializers.ListField(
         child=serializers.IntegerField(), required=False, default=list

@@ -76,7 +76,7 @@ def upload_document(project: Project, *, kind: str, filename: str, raw: bytes,
         content, encoding = base64.b64encode(raw).decode("ascii"), "base64"
 
     client = service_client()
-    branch = settings.DOCUMENTATION_BRANCH
+    branch = repo.docs_branch
     branch_exists = client.branch_exists(repo.gitlab_project_id, branch)
 
     actions = []

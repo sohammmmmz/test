@@ -1,5 +1,7 @@
 "use client";
 
+import { Modal } from "./Modal";
+
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Avatar } from "./ui";
@@ -75,12 +77,7 @@ export function TeamBuilder({ teams }: { teams: Team[] }) {
   }
 
   return (
-    <div
-      role="dialog" aria-modal="true" aria-label="Manage team"
-      style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(8,13,25,.55)",
-               backdropFilter: "blur(3px)", display: "grid", placeItems: "center", padding: 20 }}
-      onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
-    >
+    <Modal label="Manage team" onClose={() => setOpen(false)}>
       <div className="panel stack gap-4 rise"
            style={{ padding: 24, width: "100%", maxWidth: 520, maxHeight: "88vh",
                     overflowY: "auto", boxShadow: "var(--shadow-lg)" }}>
@@ -175,6 +172,6 @@ export function TeamBuilder({ teams }: { teams: Team[] }) {
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

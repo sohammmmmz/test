@@ -151,7 +151,16 @@ class GitLabRepo(models.Model):
     visibility = models.CharField(max_length=32, default="private")
     namespace_path = models.CharField(max_length=512, blank=True)
 
+    # Which branch this project's documents live on. Per project rather than a
+    # single global setting, because a repository being linked rather than
+    # created may already keep its docs somewhere established, and moving them
+    # to satisfy this tool would be the wrong way round.
+    documentation_branch = models.CharField(max_length=255, blank=True)
     documentation_branch_ready = models.BooleanField(default=False)
+
+    # True when this app created the repository, rather than linking one that
+    # already existed. Deleting is only ever offered for the former.
+    created_by_app = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -160,6 +169,13 @@ class GitLabRepo(models.Model):
 
     def __str__(self):
         return self.path_with_namespace
+
+    @property
+    def docs_branch(self) -> str:
+        """The branch documents are committed to, falling back to the default."""
+        from django.conf import settings
+
+        return self.documentation_branch or settings.DOCUMENTATION_BRANCH
 
 
 class ProjectMember(models.Model):
