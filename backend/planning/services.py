@@ -190,10 +190,23 @@ def update_task(task: Task, **fields) -> Task:
 
 
 def _complete_todos_for(task: Task) -> int:
+    """Closing the issue closes the line that pointed at it.
+
+    This is the one closing nobody has to perform in the round: the evidence is
+    in GitLab, so it needs no confirming. The claim is stamped alongside it so
+    the todo does not read as closed by an owner who never saw it.
+    """
     from daily.models import Todo
 
+    from django.db.models import Value
+    from django.db.models.functions import Coalesce
+
+    now = timezone.now()
     return Todo.objects.filter(task=task, done_at__isnull=True).update(
-        done_at=timezone.now()
+        done_at=now,
+        # Coalesce, not a plain assignment: if the person already said it was
+        # finished, that is when they said it, not now.
+        claimed_at=Coalesce("claimed_at", Value(now)),
     )
 
 

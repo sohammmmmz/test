@@ -1,11 +1,10 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { InviteLinks } from "@/components/InviteLinks";
 import { TeamBuilder } from "@/components/TeamBuilder";
-import { Avatar, Empty, Thread } from "@/components/ui";
+import { TeamCard } from "@/components/TeamCard";
+import { Empty } from "@/components/ui";
 import { api, ApiError, currentUser } from "@/lib/api";
 import { plural } from "@/lib/format";
-import type { Dashboard, Team, User } from "@/lib/types";
+import type { Dashboard, Team, User, WorkloadRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -32,115 +31,72 @@ export default async function TeamPage() {
     );
   }
 
-  const workload = new Map(dashboard?.workload.map((w) => [w.user.id, w]) ?? []);
-  const headcount = teams.reduce((sum, t) => sum + t.member_count, 0);
+  const workload: Record<number, WorkloadRow> = {};
+  for (const row of dashboard?.workload ?? []) workload[row.user.id] = row;
+
+  // Somebody on two teams is one person, not two. The headcount says how many
+  // people the owner is actually responsible for.
+  const everyone = new Set<number>();
+  for (const team of teams) for (const m of team.members) everyone.add(m.user.id);
+  const headcount = everyone.size;
+
+  const onTeams = [...everyone].map((id) => workload[id]).filter(Boolean) as WorkloadRow[];
+  const openTasks = onTeams.reduce((sum, r) => sum + r.open_tasks, 0);
+  const overdue = onTeams.reduce((sum, r) => sum + r.overdue_tasks, 0);
+  const carrying = onTeams.filter((r) => r.todos_stale > 0).length;
 
   return (
     <>
       <header className="page-head dawn">
-        <div className="row between wrap gap-4" style={{ alignItems: "flex-end" }}>
-          <div className="stack gap-2">
-            <span className="eyebrow">Team</span>
-            <h1>{headcount} {plural(headcount, "person", "people")} on your teams</h1>
-            <p className="soft" style={{ fontSize: ".93rem", maxWidth: "52ch" }}>
-              Everyone here has signed up already. Open somebody to see what they are
-              carrying and how their days have gone.
-            </p>
+        <div className="row between wrap gap-5" style={{ alignItems: "flex-end" }}>
+          <div className="stack gap-3">
+            <span className="eyebrow">Team strength</span>
+            <div className="row gap-4" style={{ alignItems: "flex-end" }}>
+              <span className="strength">{headcount}</span>
+              <span className="stack gap-1" style={{ paddingBottom: 6 }}>
+                <span style={{ fontSize: ".95rem", fontWeight: 600 }}>
+                  {plural(headcount, "person", "people")}
+                </span>
+                <span className="faint" style={{ fontSize: ".8rem" }}>
+                  across {teams.length} {plural(teams.length, "team")}
+                </span>
+              </span>
+            </div>
+            <div className="row gap-2 wrap center">
+              <span className="pill pill-brand">{openTasks} open {plural(openTasks, "task")}</span>
+              {overdue > 0 && <span className="pill pill-overdue">{overdue} overdue</span>}
+              {carrying > 0 && (
+                <span className="pill pill-attention">{carrying} carrying work over</span>
+              )}
+            </div>
           </div>
-          <TeamBuilder teams={teams} />
+
+          <TeamBuilder hasTeams={teams.length > 0} />
         </div>
       </header>
 
       <div className="page-body">
-        {teams.length === 0 && (
+        {teams.length === 0 ? (
           <div className="panel">
             <Empty
               title="No team yet"
-              body="Create a team, then add people who have signed up. You draw project members from it."
+              body="Create a team, then add people who have signed up or share a link so they can join. You draw project members from it."
             />
+          </div>
+        ) : (
+          <div className="stack gap-4">
+            {teams.map((team, index) => (
+              <TeamCard key={team.id} team={team} workload={workload} index={index} />
+            ))}
           </div>
         )}
 
-        {teams.map((team) => (
-          <section key={team.id} className="stack gap-3">
-            <div className="row between center wrap gap-2">
-              <div className="stack gap-1">
-                <h2>{team.name}</h2>
-                {team.description && (
-                  <span className="faint" style={{ fontSize: ".82rem" }}>{team.description}</span>
-                )}
-              </div>
-              <span className="eyebrow">{team.member_count} {plural(team.member_count, "member")}</span>
-            </div>
-
-            <InviteLinks team={team} />
-
-            <div className="grid cols-auto">
-              {team.members.map((membership, index) => {
-                const person = membership.user;
-                const load = workload.get(person.id);
-                return (
-                  <Link key={membership.id} href={`/team/${person.id}`}
-                        className="panel stack gap-3 rise"
-                        style={{ padding: 17, animationDelay: `${index * 45}ms` }}>
-                    <div className="row gap-3 center">
-                      <Avatar name={person.display_name} large
-                              url={person.gitlab_avatar_url || undefined} />
-                      <span className="stack grow">
-                        <span style={{ fontWeight: 600, fontSize: ".95rem" }}>
-                          {person.display_name}
-                        </span>
-                        <span className="faint" style={{ fontSize: ".77rem" }}>
-                          {person.job_title || person.department}
-                        </span>
-                      </span>
-                      {(load?.todos_stale ?? 0) > 0 && (
-                        <Thread days={(load?.todos_stale ?? 0) + 2} stale />
-                      )}
-                    </div>
-
-                    {load && (
-                      <div className="row gap-4 wrap" style={{ fontSize: ".76rem" }}>
-                        <span className="stack">
-                          <span className="mono" style={{ fontSize: ".95rem", fontWeight: 600 }}>
-                            {load.open_tasks}
-                          </span>
-                          <span className="faint">open tasks</span>
-                        </span>
-                        <span className="stack">
-                          <span className="mono" style={{ fontSize: ".95rem", fontWeight: 600,
-                                        color: load.overdue_tasks ? "var(--overdue)" : undefined }}>
-                            {load.overdue_tasks}
-                          </span>
-                          <span className="faint">overdue</span>
-                        </span>
-                        <span className="stack">
-                          <span className="mono" style={{ fontSize: ".95rem", fontWeight: 600 }}>
-                            {load.todos_total - load.todos_pending}/{load.todos_total}
-                          </span>
-                          <span className="faint">done today</span>
-                        </span>
-                        <span className="stack">
-                          <span className="mono" style={{ fontSize: ".95rem", fontWeight: 600 }}>
-                            {load.project_count}
-                          </span>
-                          <span className="faint">projects</span>
-                        </span>
-                      </div>
-                    )}
-                  </Link>
-                );
-              })}
-
-              {team.members.length === 0 && (
-                <div className="panel" style={{ gridColumn: "1 / -1" }}>
-                  <Empty title="Nobody on this team yet"
-                         body="Add people who have already signed up — we need their GitLab account to assign them anything." />
-                </div>
-              )}
-            </div>
-          </section>
-        ))}
+        {teams.length > 0 && (
+          <p className="faint" style={{ fontSize: ".78rem" }}>
+            Open a team to see everyone on it. Open a person to see what they are
+            carrying and how their days have gone.
+          </p>
+        )}
       </div>
     </>
   );

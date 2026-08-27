@@ -178,10 +178,31 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return Response(payload, status=status.HTTP_201_CREATED)
 
     def destroy(self, request, *args, **kwargs):
+        """Delete the project. The repository survives unless explicitly asked for.
+
+        Two guards, both here rather than only in the browser. Only the person
+        who owns the project may delete it: working on somebody else's project
+        puts it in your list, not in your hands. And deleting the repository as
+        well means typing the project's name back, checked server-side — a
+        confirmation that exists only in the UI is not a confirmation.
+        """
         project = self.get_object()
+        if project.owner_id != request.user.id:
+            return Response(
+                {"detail": "Only the owner of this project can delete it."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         name = project.name
-        # Deleting the repository takes a deliberate second decision.
         delete_repo = str(request.query_params.get("delete_repository", "")).lower() == "true"
+        if delete_repo:
+            typed = (request.query_params.get("confirm") or "").strip()
+            if typed != name:
+                return Response(
+                    {"detail": f'Type the project name exactly — {name} — to delete the repository too.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         result = delete_project(project, delete_repository=delete_repo)
         return Response({"deleted": name, **result})
 

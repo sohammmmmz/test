@@ -153,8 +153,15 @@ export type Todo = {
   notes: string;
   task: Task | null;
   source: "carried" | "task" | "meeting" | "manual";
+  // Two stages, not one flag. "claimed" is the person saying it is finished;
+  // "closed" is the owner confirming it in the morning meeting.
+  status: "open" | "claimed" | "closed";
   is_done: boolean;
   done_at: string | null;
+  closed_by_name: string | null;
+  is_claimed: boolean;
+  claimed_at: string | null;
+  claimed_by_name: string | null;
   is_stale: boolean;
   age_days: number;
   carry_count: number;
@@ -165,7 +172,7 @@ export type Todo = {
 export type DayView = {
   date: string;
   is_working_day?: boolean;
-  counts: { total: number; done: number; carried: number; stale: number };
+  counts: { total: number; done: number; claimed: number; carried: number; stale: number };
   todos: Todo[];
   suggestions: Task[];
   open_tasks: Task[];
@@ -205,14 +212,29 @@ export type Meeting = {
   notes: (MeetingNote & { user: User })[];
 };
 
+export type LastMeeting = {
+  date: string;
+  attended: boolean;
+  blockers: string;
+  notes: string;
+  todos: Todo[];
+  total: number;
+  closed: number;
+  still_open: number;
+  days_ago: number;
+};
+
 export type MeetingRow = {
   user: User;
   is_owner: boolean;
   note: MeetingNote | null;
   pending: Todo[];
+  claimed: Todo[];
+  done: Todo[];
   suggestions: Task[];
   overdue_tasks: Task[];
   stale_count: number;
+  last_meeting: LastMeeting | null;
 };
 
 export type MeetingBoard = {
@@ -227,6 +249,7 @@ export type WorkloadRow = {
   overdue_tasks: number;
   todos_total: number;
   todos_pending: number;
+  todos_awaiting: number;
   todos_stale: number;
   project_count: number;
 };
@@ -261,9 +284,11 @@ export type Dashboard = {
 export type Alerts = {
   date: string;
   pending_count: number;
+  awaiting_count: number;
   done_count: number;
   stale: Todo[];
   pending: Todo[];
+  awaiting: Todo[];
   overdue_tasks: Task[];
 };
 

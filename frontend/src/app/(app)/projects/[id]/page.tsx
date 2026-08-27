@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { DeleteProject } from "@/components/DeleteProject";
 import { Documents } from "@/components/Documents";
 import { Plan } from "@/components/Plan";
 import { ProjectMembers } from "@/components/ProjectMembers";
@@ -148,6 +149,21 @@ export default async function ProjectPage({
             branch={project.repo?.docs_branch ?? "documentation"}
           />
         </section>
+
+        {user.id === project.owner.id && (
+          <section className="row between center wrap gap-3"
+                   style={{ paddingTop: 4, borderTop: "1px solid var(--line)" }}>
+            <span className="faint" style={{ fontSize: ".79rem", maxWidth: "58ch" }}>
+              Removing this project stops tracking it here. The repository is left
+              alone unless you say otherwise.
+            </span>
+            <DeleteProject
+              projectId={project.id}
+              projectName={project.name}
+              repoPath={project.repo?.path_with_namespace ?? null}
+            />
+          </section>
+        )}
       </div>
     </>
   );

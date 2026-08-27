@@ -12,15 +12,22 @@ import type { Task, Todo } from "@/lib/types";
  * Suggestions sit beneath the list rather than inside it: they are GitLab tasks
  * the person could pick up, not commitments they have made. Moving one up is a
  * deliberate act, which is the whole distinction between a task and a todo.
+ *
+ * Ticking means two different things here. A member ticking a line is saying
+ * "I have finished this" — it goes amber and waits. Only their lead closes it,
+ * and they do it in the morning meeting. Showing the difference matters: a
+ * member who thinks they closed something, and a lead who never saw it, is the
+ * exact failure the two stages exist to prevent.
  */
 export function TodoList({
-  todos, suggestions, date, canAdd, canTick, title, userId,
+  todos, suggestions, date, canAdd, canTick, canClose, title, userId,
 }: {
   todos: Todo[];
   suggestions: Task[];
   date: string;
   canAdd?: boolean;
   canTick?: boolean;
+  canClose?: boolean;
   title: string;
   userId?: number;
 }) {
@@ -34,10 +41,16 @@ export function TodoList({
 
   async function toggle(todo: Todo) {
     setBusy(todo.id);
+    // An owner closes; everybody else claims. The backend enforces this either
+    // way — sending the wrong one is folded down rather than refused — but
+    // saying it plainly here keeps the button honest about what it does.
+    const body = canClose
+      ? { done: todo.status !== "closed" }
+      : { claimed: todo.status === "open" };
     await fetch(`/api/proxy/api/daily/todos/${todo.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ done: !todo.is_done }),
+      body: JSON.stringify(body),
     });
     setBusy(null);
     refresh();
@@ -66,64 +79,93 @@ export function TodoList({
   }
 
   const done = todos.filter((t) => t.is_done).length;
+  const waiting = todos.filter((t) => t.is_claimed).length;
 
   return (
     <div className="stack gap-4">
       <div className="panel rise" style={{ overflow: "hidden" }}>
         <div className="panel-head">
           <h2 style={{ fontSize: "1.05rem" }}>{title}</h2>
-          <span className="mono faint" style={{ fontSize: ".78rem" }}>
-            {done}/{todos.length}
+          <span className="row gap-2 center">
+            {waiting > 0 && (
+              <span className="pill pill-attention">
+                {waiting} waiting to be closed
+              </span>
+            )}
+            <span className="mono faint" style={{ fontSize: ".78rem" }}>
+              {done}/{todos.length}
+            </span>
           </span>
         </div>
 
         <div className="stack">
-          {todos.map((todo) => (
-            <div key={todo.id} className="todo" data-done={todo.is_done}>
-              {canTick ? (
-                <button
-                  className="check"
-                  data-done={todo.is_done}
-                  disabled={busy === todo.id}
-                  onClick={() => toggle(todo)}
-                  aria-label={todo.is_done ? `Undo ${todo.title}` : `Mark ${todo.title} done`}
-                >
-                  <Tick />
-                </button>
-              ) : (
-                <span className="check" data-done={todo.is_done} aria-hidden><Tick /></span>
-              )}
+          {todos.map((todo) => {
+            const claimed = todo.status === "claimed";
+            const closed = todo.status === "closed";
+            const label = closed
+              ? `Reopen ${todo.title}`
+              : claimed
+                ? `Undo marking ${todo.title} done`
+                : `Mark ${todo.title} done`;
 
-              <Thread days={todo.carry_count} stale={todo.is_stale} />
+            return (
+              <div key={todo.id} className="todo" data-done={closed}>
+                {canTick && !(closed && !canClose) ? (
+                  <button
+                    className={`check ${claimed ? "check-claimed" : ""}`}
+                    data-done={closed}
+                    disabled={busy === todo.id}
+                    onClick={() => toggle(todo)}
+                    aria-label={label}
+                  >
+                    <Tick />
+                  </button>
+                ) : (
+                  <span className={`check ${claimed ? "check-claimed" : ""}`}
+                        data-done={closed} aria-hidden><Tick /></span>
+                )}
 
-              <span className="grow stack gap-1">
-                <span className="todo-title">{todo.title}</span>
-                <span className="row gap-2 center wrap" style={{ fontSize: ".72rem" }}>
-                  {todo.task && (
-                    <a href={todo.task.web_url} target="_blank" rel="noreferrer"
-                       className="mono" style={{ color: "var(--brand)" }}>
-                      #{todo.task.gitlab_iid} {todo.task.project_name}
-                    </a>
-                  )}
-                  {todo.carry_count > 0 && (
-                    <span className="faint">
-                      carried {todo.carry_count} {todo.carry_count === 1 ? "day" : "days"}
-                    </span>
-                  )}
-                  {todo.source === "meeting" && (
-                    <span className="faint">from the standup</span>
-                  )}
+                <Thread days={todo.carry_count} stale={todo.is_stale} />
+
+                <span className="grow stack gap-1">
+                  <span className="todo-title">{todo.title}</span>
+                  <span className="row gap-2 center wrap" style={{ fontSize: ".72rem" }}>
+                    {claimed && (
+                      <span style={{ color: "var(--attention)" }}>
+                        {todo.claimed_by_name
+                          ? `marked done by ${todo.claimed_by_name} · waiting to be closed`
+                          : "marked done · waiting to be closed"}
+                      </span>
+                    )}
+                    {closed && todo.closed_by_name && (
+                      <span className="faint">closed by {todo.closed_by_name}</span>
+                    )}
+                    {todo.task && (
+                      <a href={todo.task.web_url} target="_blank" rel="noreferrer"
+                         className="mono" style={{ color: "var(--brand)" }}>
+                        #{todo.task.gitlab_iid} {todo.task.project_name}
+                      </a>
+                    )}
+                    {todo.carry_count > 0 && (
+                      <span className="faint">
+                        carried {todo.carry_count} {todo.carry_count === 1 ? "day" : "days"}
+                      </span>
+                    )}
+                    {todo.source === "meeting" && (
+                      <span className="faint">from the standup</span>
+                    )}
+                  </span>
                 </span>
-              </span>
 
-              {canTick && (
-                <button className="btn btn-ghost btn-sm" onClick={() => remove(todo)}
-                        disabled={busy === todo.id} aria-label={`Remove ${todo.title}`}>
-                  ×
-                </button>
-              )}
-            </div>
-          ))}
+                {canTick && !closed && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => remove(todo)}
+                          disabled={busy === todo.id} aria-label={`Remove ${todo.title}`}>
+                    ×
+                  </button>
+                )}
+              </div>
+            );
+          })}
 
           {todos.length === 0 && (
             <p className="faint" style={{ padding: "22px 18px", fontSize: ".86rem" }}>

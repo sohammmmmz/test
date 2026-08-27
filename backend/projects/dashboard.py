@@ -74,7 +74,11 @@ def dashboard(request):
     workload = []
     for person in people:
         todos = ensure_day(person, day)
-        pending = [t for t in todos if not t.is_done]
+        # Pending means nobody has even said it is finished. A line the person
+        # has ticked and the owner has not yet closed is waiting on the review,
+        # and counting it against them here would read as their backlog.
+        pending = [t for t in todos if t.status == "open"]
+        awaiting = [t for t in todos if t.is_claimed]
         open_tasks = Task.objects.filter(assignee=person, state=Task.State.OPEN)
         workload.append({
             "user": UserSerializer(person).data,
@@ -83,6 +87,7 @@ def dashboard(request):
             "overdue_tasks": open_tasks.filter(due_date__lt=day).count(),
             "todos_total": len(todos),
             "todos_pending": len(pending),
+            "todos_awaiting": len(awaiting),
             "todos_stale": sum(1 for t in pending if t.is_stale),
             "project_count": Project.objects.filter(members__user=person).distinct().count(),
         })

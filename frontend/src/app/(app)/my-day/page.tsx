@@ -20,7 +20,9 @@ export default async function MyDayPage() {
     throw err;
   }
 
-  const left = day.counts.total - day.counts.done;
+  // "Left" means nobody has said it is finished. A line the person has ticked
+  // and their lead has not yet closed is not still on their plate.
+  const left = day.counts.total - day.counts.done - day.counts.claimed;
   const headline =
     day.counts.total === 0
       ? "Nothing on the list yet."
@@ -38,6 +40,7 @@ export default async function MyDayPage() {
             {day.counts.carried > 0
               ? `${day.counts.carried} ${plural(day.counts.carried, "item")} carried over from last time.`
               : "Everything here was added today."}
+            {!user.is_owner && " Ticking something marks it done for the morning meeting — your lead closes it there."}
           </p>
         </div>
       </header>
@@ -49,6 +52,7 @@ export default async function MyDayPage() {
           date={day.date}
           canAdd
           canTick
+          canClose={user.is_owner}
           title="Today"
         />
       </div>

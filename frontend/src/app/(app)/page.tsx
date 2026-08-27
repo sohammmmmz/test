@@ -111,7 +111,7 @@ export default async function TodayPage() {
               </div>
             )}
 
-            <div className="stack">
+            <div className="locked-body stack" style={{ maxHeight: "18rem" }}>
               {alerts.pending.slice(0, 5).map((todo) => (
                 <div key={todo.id} className="todo">
                   <Thread days={todo.carry_count} stale={todo.is_stale} />
@@ -133,12 +133,17 @@ export default async function TodayPage() {
         )}
 
         <section className="grid cols-2" style={{ alignItems: "start" }}>
-          <div className="panel rise" style={{ animationDelay: "220ms", overflow: "hidden" }}>
+          {/* Locked height, scrolling inside. Both of these grow with the team
+              and with the plan; letting either set the page height means the
+              layout comes apart on the day somebody hires. */}
+          <div className="panel rise panel-locked" style={{ animationDelay: "220ms" }}>
             <div className="panel-head">
               <h2 style={{ fontSize: "1.05rem" }}>Who is carrying what</h2>
-              <span className="eyebrow">busiest first</span>
+              <span className="eyebrow">
+                {data.workload.length} {plural(data.workload.length, "person", "people")} · busiest first
+              </span>
             </div>
-            <div className="scroll-x">
+            <div className="locked-body scroll-x">
               <table className="data" style={{ minWidth: 520 }}>
                 <thead>
                   <tr>
@@ -196,12 +201,14 @@ export default async function TodayPage() {
             </div>
           </div>
 
-          <div className="panel rise" style={{ animationDelay: "260ms", overflow: "hidden" }}>
+          <div className="panel rise panel-locked" style={{ animationDelay: "260ms" }}>
             <div className="panel-head">
               <h2 style={{ fontSize: "1.05rem" }}>What lands next</h2>
-              <span className="eyebrow">by date</span>
+              <span className="eyebrow">
+                {data.upcoming_milestones.length} ahead · by date
+              </span>
             </div>
-            <div className="stack">
+            <div className="locked-body stack">
               {data.upcoming_milestones.map((m) => (
                 <Link key={m.id} href={`/projects/${m.project_id}`}
                       className="stack gap-2"
@@ -229,6 +236,7 @@ export default async function TodayPage() {
                 <Empty title="Nothing scheduled"
                        body="Add a milestone with a due date and it will appear here." />
               )}
+              <span style={{ height: 22, flex: "none" }} />
             </div>
           </div>
         </section>

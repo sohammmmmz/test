@@ -30,6 +30,16 @@ from .serializers import (
 User = get_user_model()
 
 
+def _live_invites(team):
+    """The links worth showing: anything not turned off.
+
+    Expired and spent links stay in the list — they explain themselves, and an
+    owner wondering why nobody arrived should be able to see that the link ran
+    out. Revoked ones are deleted outright, so they never reach here.
+    """
+    return team.invites.filter(revoked_at__isnull=True).select_related("created_by")
+
+
 class TeamViewSet(viewsets.ModelViewSet):
     """Owners manage their own teams; members can read the ones they are on."""
 
@@ -94,9 +104,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         team = self.get_object()
 
         if request.method == "GET":
-            return Response(
-                TeamInviteSerializer(team.invites.select_related("created_by"), many=True).data
-            )
+            return Response(TeamInviteSerializer(_live_invites(team), many=True).data)
 
         serializer = CreateInviteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -118,14 +126,16 @@ class TeamViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["delete"], url_path=r"invites/(?P<token>[-\w]+)")
     def revoke_invite(self, request, pk=None, token=None):
-        """Turn a link off. Anyone holding it is refused from now on."""
+        """Turn a link off, and stop listing it.
+
+        The row goes rather than being flagged. A dead link has nothing left to
+        say: whoever joined through it is on the roster in their own right, and
+        a struck-through entry that can never be used again is only clutter
+        between the owner and the links that still work.
+        """
         team = self.get_object()
-        TeamInvite.objects.filter(team=team, token=token, revoked_at__isnull=True).update(
-            revoked_at=timezone.now()
-        )
-        return Response(
-            TeamInviteSerializer(team.invites.select_related("created_by"), many=True).data
-        )
+        TeamInvite.objects.filter(team=team, token=token).delete()
+        return Response(TeamInviteSerializer(_live_invites(team), many=True).data)
 
     @action(detail=True, methods=["delete"], url_path=r"members/(?P<user_id>\d+)")
     def remove_member(self, request, pk=None, user_id=None):

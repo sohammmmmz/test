@@ -79,6 +79,10 @@ def ensure_day(user, day: date) -> list[Todo]:
         # A todo whose task was closed elsewhere is finished, not carried.
         if todo.task and todo.task.state == Task.State.CLOSED:
             continue
+        # A line the person already said was finished carries the claim with
+        # it, and does not age: it is sitting on the owner's review, not on
+        # them, so counting another day against it would blame the wrong end.
+        claimed = todo.claimed_at is not None
         carried.append(
             Todo(
                 user=user,
@@ -89,7 +93,9 @@ def ensure_day(user, day: date) -> list[Todo]:
                 source=TodoSource.CARRIED,
                 carried_from=todo,
                 first_added_on=todo.first_added_on or todo.date,
-                carry_count=todo.carry_count + 1,
+                carry_count=todo.carry_count if claimed else todo.carry_count + 1,
+                claimed_at=todo.claimed_at,
+                claimed_by=todo.claimed_by,
                 created_by=todo.created_by,
             )
         )
@@ -146,6 +152,7 @@ def day_view(user, day: date) -> dict:
         "counts": {
             "total": len(todos),
             "done": sum(1 for t in todos if t.is_done),
+            "claimed": sum(1 for t in todos if t.is_claimed),
             "carried": sum(1 for t in todos if t.carry_count > 0),
             "stale": sum(1 for t in todos if t.is_stale),
         },
@@ -153,8 +160,8 @@ def day_view(user, day: date) -> dict:
 
 
 def pending_for(user, day: date) -> list[Todo]:
-    """What is already on the list and unfinished — carried, or overdue."""
-    return [t for t in ensure_day(user, day) if not t.is_done]
+    """What is on the list and nobody has even claimed to have finished."""
+    return [t for t in ensure_day(user, day) if t.status == "open"]
 
 
 # ---------------------------------------------------------------------------
@@ -188,11 +195,50 @@ def get_or_create_meeting(team, day: date, owner) -> Meeting:
     return meeting
 
 
+def last_meeting_for(team, user, before: date) -> dict | None:
+    """What was said about this person the last time the team met.
+
+    The owner runs the same round every morning, and the question they cannot
+    answer from memory by Thursday is "what did we agree with them on Tuesday,
+    and did it happen?". So this carries three things: the note taken then, the
+    lines that were on the list that day, and how many of them closed.
+    """
+    previous = (
+        Meeting.objects.filter(team=team, date__lt=before)
+        .exclude(status=MeetingStatus.NOT_STARTED)
+        .order_by("-date")
+        .first()
+    )
+    if previous is None:
+        return None
+
+    note = previous.notes.filter(user=user).first()
+    todos = list(
+        Todo.objects.filter(user=user, date=previous.date).select_related("task")
+    )
+    return {
+        "date": previous.date,
+        "attended": note.attended if note else True,
+        "blockers": note.blockers if note else "",
+        "notes": note.notes if note else "",
+        "todos": todos,
+        "total": len(todos),
+        "closed": sum(1 for t in todos if t.is_done),
+        "still_open": sum(1 for t in todos if t.status == "open"),
+        "days_ago": (before - previous.date).days,
+    }
+
+
 def meeting_board(team, day: date, owner) -> dict:
     """The pre-meeting picture: everyone's day, side by side.
 
     This is what the screen opens on. The round is a decision-making tool; the
     board is how the owner walks in already knowing where the trouble is.
+
+    The three lists are kept apart rather than sorted into done and not-done,
+    because the middle one is the interesting one: work the person says is
+    finished and nobody has confirmed. That is precisely what the round exists
+    to settle.
     """
     meeting = get_or_create_meeting(team, day, owner)
     notes = {n.user_id: n for n in meeting.notes.select_related("user")}
@@ -200,11 +246,15 @@ def meeting_board(team, day: date, owner) -> dict:
     rows = []
     for user in team_members(team):
         todos = ensure_day(user, day)
-        pending = [t for t in todos if not t.is_done]
+        pending = [t for t in todos if t.status == "open"]
+        claimed = [t for t in todos if t.is_claimed]
+        closed = [t for t in todos if t.is_done]
         rows.append({
             "user": user,
             "note": notes.get(user.id),
             "pending": pending,
+            "claimed": claimed,
+            "done": closed,
             "suggestions": suggestions_for(user, day),
             "stale_count": sum(1 for t in pending if t.is_stale),
             "overdue_tasks": list(
@@ -212,6 +262,7 @@ def meeting_board(team, day: date, owner) -> dict:
                     assignee=user, state=Task.State.OPEN, due_date__lt=day
                 ).select_related("milestone__project")[:5]
             ),
+            "last_meeting": last_meeting_for(team, user, day),
             "is_owner": user.id == team.owner_id,
         })
 

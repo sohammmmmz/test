@@ -39,7 +39,23 @@ class Todo(models.Model):
     source = models.CharField(max_length=16, choices=TodoSource.choices,
                               default=TodoSource.MANUAL)
 
+    # Completion happens in two stages, and both are kept.
+    #
+    # A member ticking a line off is a claim: "I have finished this." The owner
+    # closing it in the morning meeting is the finding: "yes, that is done."
+    # Collapsing the two into one flag would lose the thing the owner actually
+    # wants to see — what was said to be finished, and whether anybody checked.
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claimed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="claimed_todos",
+    )
+
     done_at = models.DateTimeField(null=True, blank=True)
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="closed_todos",
+    )
 
     # The row on the previous working day this was copied from, and how many
     # days it has been rolling. A todo that keeps moving is the finding.
@@ -65,7 +81,21 @@ class Todo(models.Model):
 
     @property
     def is_done(self) -> bool:
+        """Closed for good. Only an owner can put a todo in this state."""
         return self.done_at is not None
+
+    @property
+    def is_claimed(self) -> bool:
+        """The person says it is finished, and nobody has confirmed it yet."""
+        return self.claimed_at is not None and self.done_at is None
+
+    @property
+    def status(self) -> str:
+        if self.done_at is not None:
+            return "closed"
+        if self.claimed_at is not None:
+            return "claimed"
+        return "open"
 
     @property
     def age_days(self) -> int:
@@ -74,9 +104,17 @@ class Todo(models.Model):
 
     @property
     def is_stale(self) -> bool:
+        """Rolling and nobody has said it is finished.
+
+        A claimed line is not stale however long it sits: it is waiting on the
+        owner, not on the person carrying it, and colouring it as their problem
+        would be blaming the wrong end.
+        """
         from django.conf import settings as dj
 
-        return not self.is_done and self.carry_count >= dj.TODO_STALE_AFTER_DAYS
+        if self.is_done or self.is_claimed:
+            return False
+        return self.carry_count >= dj.TODO_STALE_AFTER_DAYS
 
 
 class MeetingStatus(models.TextChoices):

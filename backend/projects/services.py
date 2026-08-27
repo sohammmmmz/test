@@ -281,15 +281,22 @@ def delete_project(project: Project, *, delete_repository: bool = False) -> dict
         "documents": project.documents.count(),
     }
 
+    repository_error = ""
+    repository_deleted = False
     if delete_repository and hasattr(project, "repo"):
         try:
             service_client().delete_project(project.repo.gitlab_project_id)
+            repository_deleted = True
         except GitLabError as exc:
+            # The project still goes, but say so plainly: silently keeping a
+            # repository somebody asked to destroy is the worse surprise.
             logger.warning("Could not delete the repository %s: %s", repo_path, exc)
+            repository_error = str(exc)
 
     project.delete()
     return {
         "removed": removed,
         "repository": repo_path,
-        "repository_deleted": delete_repository,
+        "repository_deleted": repository_deleted,
+        "repository_error": repository_error,
     }

@@ -154,16 +154,45 @@ morning. The day is materialised the first time anyone asks for it.
 Weekends and configured non-working days are skipped, so Monday carries Friday's
 unfinished work rather than three days of it (`WORKING_WEEKDAYS`).
 
+#### Ticking is not closing
+
+A todo has three states, not two. A member ticking a line off is a **claim** —
+"I have finished this" — recorded with who said it and when. It shows amber, and
+it is not closed. Closing is the owner's, and it happens in the morning meeting.
+
+Collapsing the two into one flag would lose exactly what the owner asked to be
+able to see: what was said to be finished, and whether anybody checked. A claimed
+line still carries forward if the round has not reached it, but it does not age
+and it is never marked stale — it is waiting on the review, not on the person
+holding it, and colouring it as their backlog would blame the wrong end.
+
+The one closing nobody performs: a task closed in GitLab closes the todo that
+pointed at it, because the evidence is already there.
+
 ### The morning meeting
 
 Opens on the board — the whole team side by side, so the owner walks in already
-knowing where the trouble is. **Pending** is yesterday's incomplete work plus
-anything overdue; **suggested** is their open GitLab tasks, soonest due first.
+knowing where the trouble is. The board is read-only: ticking things off before
+the round has started is how a standup becomes a form somebody fills in
+beforehand.
 
-Starting the meeting turns the board into a round: one person at a time, with
-the rest receding but still visible so it is always clear how much is left. The
-owner confirms, reassigns, adds work that has nothing to do with GitLab, and
-records blockers. Publishing writes everyone's day at once and saves the meeting.
+Starting it takes over the screen. The round is the one thing here that is
+*performed*, with a room waiting on it, so nothing else stays on screen to
+compete with the person whose turn it is:
+
+- **Left** — every name on the team, popping up in order, each showing how much
+  is open and how much is waiting to be closed. Any name can be jumped to.
+- **Centre** — whose turn it is. Work they marked done and nobody has confirmed
+  comes first, because it is the only thing on the screen that cannot be settled
+  anywhere else. Then what is still open, then what closed today, then GitLab
+  tasks they could pick up.
+- **Right** — last meeting's pointers: what was agreed, what was blocking them,
+  how much of that list actually closed. Hideable, and the first thing to go on
+  a narrow screen.
+
+Arrow keys move the round and Escape minimises it, because the owner is talking,
+not aiming a mouse. Publishing writes everyone's day at once and saves the
+meeting.
 
 The owner takes a turn too — they carry todos like anyone else, and running the
 team is the easiest way to lose sight of your own work. They go last, and their
