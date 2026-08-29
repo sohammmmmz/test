@@ -258,13 +258,16 @@ def sync_members_from_repo(project: Project, *, client=None) -> dict:
     """
     from django.contrib.auth import get_user_model
 
-    client = client or service_client()
     repo = getattr(project, "repo", None)
     if repo is None:
         return {"added": [], "already": [], "unknown": [],
                 "warnings": ["This project has no repository."]}
 
     try:
+        # Inside the try: service_client() raises when the token is missing, and
+        # "we could not read the members" is a thing to report on the panel, not
+        # a server error.
+        client = client or service_client()
         payloads = client.list_members(repo.gitlab_project_id, inherited=False)
     except GitLabError as exc:
         return {"added": [], "already": [], "unknown": [],

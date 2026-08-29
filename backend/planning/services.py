@@ -39,10 +39,24 @@ def _repo(project):
 # ---------------------------------------------------------------------------
 
 
+def _client():
+    """The service credential, as a planning failure rather than a crash.
+
+    ``service_client()`` raises when the token is missing, and it is normally
+    called outside the try that guards the call it is for — so an unconfigured
+    install answered every write with a 500 instead of saying which setting is
+    missing.
+    """
+    try:
+        return service_client()
+    except GitLabError as exc:
+        raise PlanningError(str(exc)) from exc
+
+
 def create_milestone(project, *, title: str, description: str = "",
                      start_date=None, due_date=None) -> Milestone:
     repo = _repo(project)
-    client = service_client()
+    client = _client()
 
     try:
         payload = client.create_milestone(
@@ -76,7 +90,7 @@ def update_milestone(milestone: Milestone, **fields) -> Milestone:
             "where the other projects using it can see the change."
         )
     repo = _repo(milestone.project)
-    client = service_client()
+    client = _client()
 
     upstream = {k: v for k, v in fields.items() if v is not None}
     if "state" in fields:
@@ -125,7 +139,7 @@ def create_task(milestone: Milestone, *, title: str, description: str = "",
                 assignee=None, due_date=None, labels=None) -> Task:
     project = milestone.project
     repo = _repo(project)
-    client = service_client()
+    client = _client()
 
     try:
         payload = client.create_task(
@@ -162,7 +176,7 @@ def update_task(task: Task, **fields) -> Task:
     stop trusting the todo list.
     """
     repo = _repo(task.project)
-    client = service_client()
+    client = _client()
 
     upstream: dict = {}
     if "title" in fields:
@@ -243,8 +257,13 @@ def reconcile_project(project) -> dict:
     if repo is None:
         return {"milestones": 0, "tasks": 0, "todos_completed": 0}
 
-    client = service_client()
     try:
+        # service_client() rather than _client(): this is already inside the
+        # try, and it raises GitLabError, which is what is caught here. A
+        # reconcile that cannot reach GitLab is a thing to report, not a server
+        # error — Sync calls this for every project at once, so one unconfigured
+        # install would otherwise be a screen of 500s.
+        client = service_client()
         milestone_payloads = client.list_milestones(repo.gitlab_project_id)
         issue_payloads = client.list_tasks(repo.gitlab_project_id)
     except GitLabError as exc:
