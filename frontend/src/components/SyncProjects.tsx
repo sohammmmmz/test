@@ -20,7 +20,16 @@ import type { Project } from "@/lib/types";
  */
 const AT_A_TIME = 3;
 
-type Result = { milestones: number; tasks: number; todos_completed: number; error?: string };
+type Result = {
+  milestones: number;
+  tasks: number;
+  todos_completed: number;
+  read?: number;
+  skipped_no_milestone?: number;
+  skipped_unknown_milestone?: number;
+  unmatched_milestones?: string[];
+  error?: string;
+};
 
 export function SyncProjects({ projects }: { projects: Project[] }) {
   const router = useRouter();
@@ -29,6 +38,7 @@ export function SyncProjects({ projects }: { projects: Project[] }) {
   const [done, setDone] = useState(0);
   const [report, setReport] = useState<{
     milestones: number; tasks: number; failed: string[];
+    read: number; noMilestone: number; unknownMilestone: number; unmatched: string[];
   } | null>(null);
 
   async function syncOne(project: Project): Promise<Result> {
@@ -54,6 +64,10 @@ export function SyncProjects({ projects }: { projects: Project[] }) {
 
     let milestones = 0;
     let tasks = 0;
+    let read = 0;
+    let noMilestone = 0;
+    let unknownMilestone = 0;
+    const unmatched = new Set<string>();
     const failed: string[] = [];
 
     // A few at a time: sequential is needlessly slow across a dozen projects,
@@ -65,13 +79,20 @@ export function SyncProjects({ projects }: { projects: Project[] }) {
         if (result.error) failed.push(next.name);
         milestones += result.milestones ?? 0;
         tasks += result.tasks ?? 0;
+        read += result.read ?? 0;
+        noMilestone += result.skipped_no_milestone ?? 0;
+        unknownMilestone += result.skipped_unknown_milestone ?? 0;
+        for (const name of result.unmatched_milestones ?? []) unmatched.add(name);
       }
     }
     await Promise.all(
       Array.from({ length: Math.min(AT_A_TIME, projects.length) }, worker),
     );
 
-    setReport({ milestones, tasks, failed });
+    setReport({
+      milestones, tasks, failed, read, noMilestone, unknownMilestone,
+      unmatched: [...unmatched].slice(0, 4),
+    });
     setRunning(false);
     startTransition(() => router.refresh());
   }
@@ -87,11 +108,28 @@ export function SyncProjects({ projects }: { projects: Project[] }) {
 
       {report && (
         <span className="fade" style={{ fontSize: ".76rem", textAlign: "right",
-                                        maxWidth: "34ch" }}>
+                                        maxWidth: "40ch" }}>
           <span className="faint">
             {report.milestones} {report.milestones === 1 ? "milestone" : "milestones"} and{" "}
             {report.tasks} {report.tasks === 1 ? "task" : "tasks"} read from GitLab.
           </span>
+
+          {/* Work GitLab returned and this tool did not keep. Without this a
+              sync that drops everything looks identical to one that found
+              nothing, and the difference is the whole diagnosis. */}
+          {report.noMilestone > 0 && (
+            <span style={{ color: "var(--attention)", display: "block" }}>
+              {report.noMilestone} more {report.noMilestone === 1 ? "item is" : "items are"}{" "}
+              not filed under any milestone, so {report.noMilestone === 1 ? "it is" : "they are"}{" "}
+              not shown.
+            </span>
+          )}
+          {report.unknownMilestone > 0 && (
+            <span style={{ color: "var(--overdue)", display: "block" }}>
+              {report.unknownMilestone} are under a milestone this project cannot see
+              {report.unmatched.length > 0 && ` (${report.unmatched.join(", ")})`}.
+            </span>
+          )}
           {report.failed.length > 0 && (
             <span style={{ color: "var(--attention)", display: "block" }}>
               Could not reach {report.failed.join(", ")}.

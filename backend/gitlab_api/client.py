@@ -344,38 +344,37 @@ class GitLabClient:
 
     TASK_TYPE = "task"
 
-    # What counts as planned work when reading. Writing always makes a task;
-    # reading has to accept issues too, because a plan built in GitLab — or
-    # built here before the two were told apart — is full of them, and filtering
-    # them out reports an empty milestone for work that is visibly there.
-    #
-    # The milestone is what separates planning from noise, not the type: an
-    # issue filed with no milestone is still read by nobody here.
-    PLANNED_TYPES = ("task", "issue")
-
     def list_tasks(self, project_id: int, *, updated_after=None,
                    issue_types: tuple[str, ...] | list[str] | None = None) -> list[dict]:
-        """Work items filed under a milestone, whatever type they were made as.
+        """Everything on the project's work item list.
 
-        ``issue_types`` narrows it — pass ``("task",)`` for a project that has
-        been fully converted and wants its Issues tab left strictly alone.
+        Fetched **unfiltered**, and narrowed here rather than with ``issue_type``
+        on the query. This has to work against whatever GitLab is on the box,
+        and the versions disagree: work item types did not always exist, the
+        filter value did not always exist, and a server that does not recognise
+        a query parameter is as likely to ignore it as to reject it. Asking for
+        everything and choosing locally cannot silently return nothing.
+
+        What actually separates planning from noise is the **milestone**, not the
+        type — see reconcile_project. So nothing is filtered by default, and an
+        item with no milestone is dropped there rather than here.
+
+        ``issue_types`` narrows it for a project that wants only tasks read. An
+        item whose type GitLab did not report is kept either way: an older server
+        has no opinion about types, and discarding its work would be discarding
+        the whole plan.
         """
         params: dict[str, Any] = {"scope": "all", "state": "all"}
         if updated_after is not None:
             params["updated_after"] = updated_after.isoformat()
 
-        wanted = issue_types or self.PLANNED_TYPES
+        wanted = set(issue_types) if issue_types else None
         rows: list[dict] = []
-        seen: set[int] = set()
-        for issue_type in wanted:
-            # One call per type: issue_type takes a single value, not a list.
-            params_for_type = {**params, "issue_type": issue_type}
-            for row in self.paginate(f"/projects/{project_id}/issues",
-                                     params=params_for_type):
-                if row["id"] in seen:
-                    continue
-                seen.add(row["id"])
-                rows.append(row)
+        for row in self.paginate(f"/projects/{project_id}/issues", params=params):
+            kind = row.get("issue_type")
+            if wanted is not None and kind is not None and kind not in wanted:
+                continue
+            rows.append(row)
         return rows
 
     def create_task(self, project_id: int, *, title: str, description: str = "",

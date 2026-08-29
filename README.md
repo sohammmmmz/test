@@ -54,6 +54,32 @@ token owns every write.
 
 ---
 
+## Deploying somewhere air-gapped
+
+Three things reach the network at install or build time and will need handling.
+
+**Python dependencies.** `openpyxl` and `et-xmlfile` are needed for the Excel
+reports. Vendor the wheels (`pip download -r requirements.txt -d wheels/`) on a
+connected machine and install with `pip install --no-index --find-links wheels/`.
+
+**Fonts.** `next/font/google` downloads Bricolage Grotesque, Public Sans and
+JetBrains Mono **at build time**. A build on a machine with no route to
+`fonts.gstatic.com` will fail or stall. Either build on a connected machine and
+ship `.next`, or vendor the woff2 files into `public/fonts/` and swap
+`next/font/google` for `next/font/local` in `app/layout.tsx`.
+
+**GitLab itself.** `GITLAB_URL` points at the internal instance, and the OAuth
+application and group access token are created there. Nothing else in the app
+calls out.
+
+Self-hosted GitLab also means an older API than gitlab.com. Two places were
+written for that: work items are read unfiltered and narrowed locally rather
+than with `issue_type` on the query, and milestones ask for ancestors but do not
+depend on getting them. If a plan still looks wrong, `inspect_gitlab` prints
+exactly what that server returned.
+
+---
+
 ## How it works
 
 ### Signing in
@@ -138,15 +164,40 @@ behind one REST endpoint — `/issues` carries every work item type, selected wi
 They are kept apart for the person using GitLab: planning done in this tool
 lands under **Tasks**, where it belongs, instead of filling the Issues tab.
 
-Reading is deliberately wider than writing. Reconciliation accepts **both tasks
-and issues**, because a plan built in GitLab — or built here before the two were
-told apart — is full of issues, and filtering them out reports an empty milestone
-for work that is visibly there.
+Reading is deliberately wider than writing, and does **no type filtering at
+all**. The work item list is fetched unfiltered and narrowed locally, because the
+GitLab versions disagree: work item types did not always exist, `issue_type` was
+not always a valid filter, and a server that does not recognise a query parameter
+is as likely to ignore it as to reject it. Asking for everything and choosing
+locally cannot silently return nothing.
 
-What separates planning from noise is the **milestone**, not the type. An issue
-filed with no milestone is still read by nobody here and stays entirely theirs.
-Anything that did come across as an issue is labelled *issue* in the plan, rather
-than being quietly called a task.
+What separates planning from noise is the **milestone**, not the type:
+
+- filed under a milestone this project can see → read, whatever type it is
+- filed under nothing → left alone, and counted
+- filed under a milestone this project cannot see → left alone, and named
+
+Anything that came across as an issue is labelled *issue* in the plan rather than
+quietly called a task.
+
+#### When the plan looks empty
+
+A sync that reads sixty work items and keeps none looks identical to one that
+found nothing, so it says which. **Sync with GitLab** reports what it dropped and
+why, and `reconcile` returns `read`, `skipped_no_milestone`,
+`skipped_unknown_milestone` and `unmatched_milestones` alongside the counts.
+
+To see the payloads themselves — read-only, no writes, safe against production:
+
+```bash
+python manage.py inspect_gitlab <project id>          # what GitLab returns
+python manage.py inspect_gitlab <project id> --raw    # plus one item in full
+```
+
+It prints every milestone with its scope, every work item with its type,
+milestone and assignee, and then what this tool would keep and what it would
+drop. If the plan on screen disagrees with the plan in GitLab, that output
+settles it.
 
 A task takes `milestone_id` directly, so Milestone → Task needs no parent link —
 just as well, since REST cannot make a task the child of an issue (it comes out

@@ -254,8 +254,11 @@ def reconcile_project(project) -> dict:
     business rewriting them.
     """
     repo = getattr(project, "repo", None)
+    blank = {"milestones": 0, "tasks": 0, "todos_completed": 0, "read": 0,
+             "skipped_no_milestone": 0, "skipped_unknown_milestone": 0,
+             "unmatched_milestones": [], "types": {}}
     if repo is None:
-        return {"milestones": 0, "tasks": 0, "todos_completed": 0}
+        return blank
 
     try:
         # service_client() rather than _client(): this is already inside the
@@ -268,7 +271,7 @@ def reconcile_project(project) -> dict:
         issue_payloads = client.list_tasks(repo.gitlab_project_id)
     except GitLabError as exc:
         logger.warning("Could not reconcile %s: %s", project.name, exc)
-        return {"milestones": 0, "tasks": 0, "todos_completed": 0, "error": str(exc)}
+        return {**blank, "error": str(exc)}
 
     by_gitlab_id: dict[int, Milestone] = {}
     for payload in milestone_payloads:
@@ -300,12 +303,34 @@ def reconcile_project(project) -> dict:
 
     todos_completed = 0
     task_count = 0
+    # What was seen but not kept. A sync that silently drops everything is
+    # indistinguishable from a sync that found nothing, and the difference is
+    # the whole diagnosis.
+    skipped_no_milestone = 0
+    skipped_unknown_milestone = 0
+    unmatched: dict[int, str] = {}
+    types_seen: dict[str, int] = {}
+
     for payload in issue_payloads:
+        kind = payload.get("issue_type") or "unknown"
+        types_seen[kind] = types_seen.get(kind, 0) + 1
+
         milestone_payload = payload.get("milestone") or {}
+        if not milestone_payload:
+            # Filed under nothing. It stays in GitLab untouched rather than
+            # being invented a milestone here.
+            skipped_no_milestone += 1
+            continue
+
         milestone = by_gitlab_id.get(milestone_payload.get("id"))
         if milestone is None:
-            # An issue with no milestone has no home in this model. It stays in
-            # GitLab untouched rather than being invented a milestone here.
+            # Filed under a milestone this project cannot see — most often a
+            # group milestone on a server that does not return ancestors.
+            skipped_unknown_milestone += 1
+            unmatched.setdefault(
+                milestone_payload.get("id"),
+                milestone_payload.get("title", "") or str(milestone_payload.get("id")),
+            )
             continue
 
         assignee_payload = payload.get("assignee") or {}
@@ -333,8 +358,24 @@ def reconcile_project(project) -> dict:
         if state == Task.State.CLOSED:
             todos_completed += _complete_todos_for(task)
 
-    return {
+    result = {
         "milestones": len(by_gitlab_id),
         "tasks": task_count,
         "todos_completed": todos_completed,
+        # Diagnostics. Cheap to carry, and the only way a sync that reads sixty
+        # work items and keeps none can say so.
+        "read": len(issue_payloads),
+        "skipped_no_milestone": skipped_no_milestone,
+        "skipped_unknown_milestone": skipped_unknown_milestone,
+        "unmatched_milestones": sorted(unmatched.values())[:8],
+        "types": types_seen,
     }
+    if skipped_no_milestone or skipped_unknown_milestone:
+        logger.info(
+            "%s: read %s work items, kept %s (%s had no milestone, %s had one this "
+            "project cannot see: %s)",
+            project.name, len(issue_payloads), task_count,
+            skipped_no_milestone, skipped_unknown_milestone,
+            ", ".join(result["unmatched_milestones"]) or "—",
+        )
+    return result
