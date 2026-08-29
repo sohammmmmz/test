@@ -20,14 +20,15 @@ class TeamSerializer(serializers.ModelSerializer):
     owner = UserSerializer(read_only=True)
     members = serializers.SerializerMethodField()
     member_count = serializers.IntegerField(read_only=True)
+    is_general = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Team
-        fields = ["id", "name", "description", "owner", "members", "member_count", "created_at"]
+        fields = ["id", "name", "description", "owner", "members", "member_count",
+                  "is_general", "created_at"]
 
     def get_members(self, team):
-        active = team.memberships.filter(left_on__isnull=True).select_related("user")
-        return TeamMembershipSerializer(active, many=True).data
+        return TeamMembershipSerializer(team.roster(), many=True).data
 
 
 class TeamWriteSerializer(serializers.ModelSerializer):

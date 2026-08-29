@@ -53,8 +53,15 @@ async function forward(request: NextRequest) {
   });
 
   const out = new Headers();
-  const contentType = response.headers.get("content-type");
-  if (contentType) out.set("content-type", contentType);
+  // Everything a download needs to arrive as a file rather than as bytes the
+  // browser tries to render. Without content-disposition the spreadsheet opens
+  // as gibberish in a tab instead of landing in Downloads.
+  // Not content-length: the body is relayed as a stream, so letting Node frame
+  // it itself is safer than asserting a length that a re-encode could falsify.
+  for (const header of ["content-type", "content-disposition", "x-report-filename"]) {
+    const value = response.headers.get(header);
+    if (value) out.set(header, value);
+  }
 
   // Relay the redirect target. Without this a 302 from Django arrives at the
   // browser with no Location and renders as a blank page — which is exactly

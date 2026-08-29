@@ -40,6 +40,10 @@ export default async function TeamPage() {
   for (const team of teams) for (const m of team.members) everyone.add(m.user.id);
   const headcount = everyone.size;
 
+  // General is every other team put together, so counting it as a team of its
+  // own would say "3 teams" to somebody who has made two.
+  const built = teams.filter((t) => !t.is_general);
+
   const onTeams = [...everyone].map((id) => workload[id]).filter(Boolean) as WorkloadRow[];
   const openTasks = onTeams.reduce((sum, r) => sum + r.open_tasks, 0);
   const overdue = onTeams.reduce((sum, r) => sum + r.overdue_tasks, 0);
@@ -58,7 +62,7 @@ export default async function TeamPage() {
                   {plural(headcount, "person", "people")}
                 </span>
                 <span className="faint" style={{ fontSize: ".8rem" }}>
-                  across {teams.length} {plural(teams.length, "team")}
+                  across {built.length} {plural(built.length, "team")}
                 </span>
               </span>
             </div>
@@ -71,12 +75,12 @@ export default async function TeamPage() {
             </div>
           </div>
 
-          <TeamBuilder hasTeams={teams.length > 0} />
+          <TeamBuilder hasTeams={built.length > 0} />
         </div>
       </header>
 
       <div className="page-body">
-        {teams.length === 0 ? (
+        {built.length === 0 ? (
           <div className="panel">
             <Empty
               title="No team yet"
@@ -91,7 +95,7 @@ export default async function TeamPage() {
           </div>
         )}
 
-        {teams.length > 0 && (
+        {built.length > 0 && (
           <p className="faint" style={{ fontSize: ".78rem" }}>
             Open a team to see everyone on it. Open a person to see what they are
             carrying and how their days have gone.

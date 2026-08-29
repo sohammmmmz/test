@@ -186,6 +186,9 @@ export type Team = {
   owner: User;
   members: { id: number; user: User; joined_on: string; left_on: string | null; is_active: boolean }[];
   member_count: number;
+  // The catch-all: everyone on every other team this owner keeps. It has no
+  // roster of its own, so nobody can be added to it directly.
+  is_general: boolean;
   created_at: string;
 };
 
@@ -326,3 +329,126 @@ export type AvailableRepo = {
 };
 
 export type RepoBranch = { name: string; is_default: boolean };
+
+/* --------------------------------------------------------------------------
+   Reports
+   -------------------------------------------------------------------------- */
+
+export type ReportSummary = {
+  generated_at: string;
+  generated_by: string;
+  kind: "daily" | "weekly";
+  label: string;
+  start: string;
+  end: string;
+  projects: number;
+  active_projects: number;
+  slipping: number;
+  not_ready: number;
+  people: number;
+  over_capacity: number;
+  idle: number;
+  open_tasks: number;
+  overdue_tasks: number;
+  tasks_closed: number;
+  todos_closed: number;
+  todos_awaiting: number;
+  meetings_held: number;
+  capacity_basis: number;
+};
+
+export type ReportProject = {
+  name: string;
+  status: string;
+  is_active: boolean;
+  repository: string;
+  repo_url: string;
+  team: string;
+  owner: string;
+  people: number;
+  milestones: number;
+  milestones_closed: number;
+  tasks: number;
+  tasks_done: number;
+  percent: number;
+  overdue_milestones: number;
+  is_slipping: boolean;
+  next_milestone: string;
+  next_due: string | null;
+  started_on: string | null;
+  target_end_on: string | null;
+  setup: string;
+  missing: string;
+  closed_in_period: number;
+};
+
+export type ReportPerson = {
+  name: string;
+  gitlab_username: string;
+  department: string;
+  job_title: string;
+  role: string;
+  projects: number;
+  project_names: string;
+  open_tasks: number;
+  overdue_tasks: number;
+  tasks_closed_in_period: number;
+  todos_open_today: number;
+  todos_in_period: number;
+  todos_closed: number;
+  todos_awaiting: number;
+  todos_carrying: number;
+  todos_stale: number;
+  load: number;
+  bandwidth_percent: number;
+  bandwidth: "Free" | "Spare capacity" | "Steady" | "Full" | "Over capacity";
+};
+
+export type ReportAssignment = {
+  project: string;
+  project_status: string;
+  person: string;
+  department: string;
+  branch: string;
+  on_gitlab: string;
+  open_tasks: number;
+  overdue_tasks: number;
+  closed_in_period: number;
+};
+
+export type ReportMilestone = {
+  project: string;
+  milestone: string;
+  state: string;
+  start_date: string | null;
+  due_date: string | null;
+  days_remaining: number | null;
+  is_overdue: boolean;
+  tasks: number;
+  tasks_done: number;
+  percent: number;
+  closed_in_period: number;
+};
+
+export type ReportActivity = {
+  date: string;
+  weekday: string;
+  is_working_day: boolean;
+  todos: number;
+  closed: number;
+  awaiting: number;
+  still_open: number;
+  tasks_closed: number;
+  meetings: number;
+};
+
+export type ReportPreview = {
+  period: { kind: "daily" | "weekly"; label: string; start: string; end: string; days: number };
+  filename: string;
+  summary: ReportSummary;
+  projects: ReportProject[];
+  people: ReportPerson[];
+  assignments: ReportAssignment[];
+  milestones: ReportMilestone[];
+  activity: ReportActivity[];
+};

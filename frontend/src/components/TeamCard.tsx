@@ -54,9 +54,14 @@ export function TeamCard({ team, workload, index = 0 }: {
         }}
       >
         <div className="stack gap-1 grow" style={{ minWidth: 0 }}>
-          <h2 style={{ fontSize: "1.15rem" }}>{team.name}</h2>
+          <span className="row gap-2 center">
+            <h2 style={{ fontSize: "1.15rem" }}>{team.name}</h2>
+            {team.is_general && <span className="pill pill-brand">everyone</span>}
+          </span>
           <span className="faint" style={{ fontSize: ".81rem" }}>
-            {team.description || "No description yet"}
+            {team.is_general
+              ? "Everyone on every team you keep. Kept in step on its own."
+              : team.description || "No description yet"}
           </span>
         </div>
 
@@ -101,7 +106,9 @@ export function TeamCard({ team, workload, index = 0 }: {
               <span className="pill pill-done">nothing slipping</span>
             )}
           </span>
-          <InvitePeople team={team} />
+          {/* Nothing can be added to General directly — it is worked out from
+              the other teams, so an Add button there would do nothing. */}
+          {!team.is_general && <InvitePeople team={team} />}
         </div>
       </div>
 
@@ -109,8 +116,10 @@ export function TeamCard({ team, workload, index = 0 }: {
         <div>
           {members.length === 0 && (
             <Empty
-              title="Nobody on this team yet"
-              body="Add somebody signed up already, or share a link so they can join and sign up at once."
+              title={team.is_general ? "Nobody on any of your teams yet" : "Nobody on this team yet"}
+              body={team.is_general
+                ? "Build a team and put people on it — they show up here automatically."
+                : "Add somebody signed up already, or share a link so they can join and sign up at once."}
             />
           )}
 

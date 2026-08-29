@@ -135,6 +135,19 @@ identifies an invite — treat a link like a password.
 An invite settles the role, so the profile step afterwards only asks for a
 department.
 
+#### General
+
+Every owner has one team they did not make, called **General**: everyone on
+every team they keep, offered alongside the real ones wherever a team is picked
+— creating a project, running the round.
+
+It holds no memberships of its own. The roster is worked out on read from the
+other teams, because copying every join and leave into a second table means the
+copy is wrong the first time a sync is missed, and a roster that is quietly
+wrong leaves people off projects. Nothing can be added to General directly, and
+it cannot be renamed or deleted; it sorts last so a dropdown still defaults to a
+real team rather than to everybody.
+
 ### The day
 
 A todo is not a task. A task is an issue that may take a week; a todo is one
@@ -198,6 +211,34 @@ The owner takes a turn too — they carry todos like anyone else, and running th
 team is the easiest way to lose sight of your own work. They go last, and their
 own outstanding items also surface as alerts on the dashboard.
 
+### Reports
+
+A daily or weekly window, on screen and as a real spreadsheet. Both come from
+one builder — two code paths producing "the same" report is how the file ends up
+disagreeing with the page it was exported from, and the file is the copy that
+gets forwarded to somebody who will never open this app.
+
+Six sheets: **Summary**, **Projects** (status, progress, what closed in the
+window, what is still missing from setup), **People**, **Who is where** (one row
+per person per project, with the branch they own on it), **Milestones**, and
+**Day by day**.
+
+Not a CSV with a different extension: dates are real dates so they sort and
+filter, percentages are real percentages so conditional formatting works, and
+every table is frozen and filterable, because a hundred rows with nothing pinned
+is a table nobody scrolls.
+
+**Bandwidth** is open GitLab tasks plus open todos, with overdue work counted
+twice, against a nominal `CAPACITY_OPEN_ITEMS` per person. Overdue counts double
+because something a week late is not the same weight as something due Friday,
+and a straight count says it is. The number is a heuristic for spotting who to
+talk to, and both the page and the spreadsheet say so rather than presenting it
+as a measurement of the person.
+
+A weekly report runs Monday to Sunday but never past today — a Wednesday export
+claiming to cover Friday would show three days of zeros and read as the team
+having stopped.
+
 ---
 
 ## Layout
@@ -210,11 +251,12 @@ backend/
   projects/    projects, repositories, branches, documents, readiness
   planning/    milestones and tasks, two-way with GitLab
   daily/       todos, carry-forward, the morning meeting
+  reports/     the daily and weekly workbook (no models)
 frontend/src/
   middleware.ts  silent token refresh, CSRF top-up, signed-out redirects
   app/join/      the other end of an invite link
   app/auth/      where GitLab's round trip lands
-  app/(app)/     today, projects, team, morning meeting, my day
+  app/(app)/     today, projects, team, morning meeting, reports, my day
   components/    the round, the plan, todo lists, the carry-thread
   lib/           server-side Django client, deterministic formatting
 ```

@@ -248,8 +248,17 @@ export function CreateProject({ teams }: { teams: Team[] }) {
             Team
             <select className="field" value={teamId}
                     onChange={(e) => { setTeamId(Number(e.target.value)); setPicked([]); }}>
-              {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}{t.is_general ? ` — everyone (${t.member_count})` : ""}
+                </option>
+              ))}
             </select>
+            <span className="faint" style={{ fontSize: ".74rem" }}>
+              {team?.is_general
+                ? "Everyone on all of your teams, so you can staff this from across them."
+                : "Who you can pick from below. The project keeps this team for later."}
+            </span>
           </label>
         )}
 
@@ -280,10 +289,11 @@ export function CreateProject({ teams }: { teams: Team[] }) {
           </div>
         )}
 
-        {teams.length === 0 && (
+        {candidates.length === 0 && (
           <p className="faint" style={{ fontSize: ".82rem" }}>
-            You have no team yet, so the project starts with nobody on it. Build a
-            team first if you want branches created at the same time.
+            {teams.some((t) => t.member_count > 0)
+              ? "Nobody is on that team, so the project starts empty. You can add people from the project page later."
+              : "You have no team yet, so the project starts with nobody on it. Build a team first if you want branches created at the same time."}
           </p>
         )}
 

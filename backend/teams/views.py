@@ -18,7 +18,7 @@ from rest_framework.response import Response
 from accounts.permissions import IsOwner
 from accounts.serializers import UserSerializer
 
-from .models import Team, TeamInvite, TeamMembership
+from .models import Team, TeamInvite, TeamMembership, ensure_general_team
 from .serializers import (
     AddMemberSerializer,
     CreateInviteSerializer,
@@ -59,6 +59,9 @@ class TeamViewSet(viewsets.ModelViewSet):
         user = self.request.user
         base = Team.objects.select_related("owner").prefetch_related("memberships__user")
         if user.is_owner:
+            # Every owner has a General team. Made here rather than at sign-up
+            # so owners who predate it get one too.
+            ensure_general_team(user)
             return base.filter(owner=user)
         # A member sees the teams they are actually on, and nothing else.
         return base.filter(memberships__user=user, memberships__left_on__isnull=True).distinct()
@@ -72,6 +75,38 @@ class TeamViewSet(viewsets.ModelViewSet):
         team = serializer.save(owner=request.user)
         return Response(TeamSerializer(team).data, status=status.HTTP_201_CREATED)
 
+    def _reject_if_general(self, team):
+        """General has no roster of its own, so nothing can be added to it.
+
+        It is every person on every other team this owner keeps, worked out on
+        read. Putting somebody on it directly would create a row that never
+        shows up, which reads as the click having failed.
+        """
+        if not team.is_general:
+            return None
+        return Response(
+            {"detail": f"{team.name} is everyone on your other teams. "
+                       "Add people to one of those and they appear here."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def update(self, request, *args, **kwargs):
+        refusal = self._reject_if_general(self.get_object())
+        return refusal or super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        refusal = self._reject_if_general(self.get_object())
+        return refusal or super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        team = self.get_object()
+        if team.is_general:
+            return Response(
+                {"detail": f"{team.name} cannot be deleted. It is not a roster you keep."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=True, methods=["post"], url_path="members")
     def add_member(self, request, pk=None):
         """Put somebody on the roster.
@@ -80,6 +115,10 @@ class TeamViewSet(viewsets.ModelViewSet):
         and without one they could never be assigned a task.
         """
         team = self.get_object()
+        refusal = self._reject_if_general(team)
+        if refusal is not None:
+            return refusal
+
         serializer = AddMemberSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -105,6 +144,10 @@ class TeamViewSet(viewsets.ModelViewSet):
 
         if request.method == "GET":
             return Response(TeamInviteSerializer(_live_invites(team), many=True).data)
+
+        refusal = self._reject_if_general(team)
+        if refusal is not None:
+            return refusal
 
         serializer = CreateInviteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -144,6 +187,10 @@ class TeamViewSet(viewsets.ModelViewSet):
         Dated rather than deleted, so a past meeting still knows who was there.
         """
         team = self.get_object()
+        refusal = self._reject_if_general(team)
+        if refusal is not None:
+            return refusal
+
         TeamMembership.objects.filter(team=team, user_id=user_id, left_on__isnull=True).update(
             left_on=timezone.localdate()
         )
@@ -170,9 +217,8 @@ def directory(request):
 
     team_id = request.query_params.get("available_for")
     if team_id:
-        already = TeamMembership.objects.filter(
-            team_id=team_id, left_on__isnull=True
-        ).values_list("user_id", flat=True)
+        team = Team.objects.filter(pk=team_id).first()
+        already = [m.user_id for m in team.roster()] if team else []
         people = people.exclude(pk__in=already)
 
     return Response(UserSerializer(people.order_by("first_name", "username")[:100], many=True).data)

@@ -15,6 +15,9 @@ from django.db import models
 from django.utils import timezone
 
 
+GENERAL_TEAM_NAME = "General"
+
+
 class Team(models.Model):
     """A roster owned by one project owner."""
 
@@ -23,21 +26,85 @@ class Team(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="owned_teams"
     )
     description = models.TextField(blank=True)
+
+    # The catch-all. Every owner has exactly one, and it holds no rows of its
+    # own — see roster().
+    is_general = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["name"]
+        # General last: the specific teams are the ordinary answer, and a
+        # dropdown that defaults to everybody defaults to nothing useful.
+        ordering = ["is_general", "name"]
         constraints = [
-            models.UniqueConstraint(fields=["owner", "name"], name="uniq_team_name_per_owner")
+            models.UniqueConstraint(fields=["owner", "name"], name="uniq_team_name_per_owner"),
+            models.UniqueConstraint(
+                fields=["owner"],
+                condition=models.Q(is_general=True),
+                name="uniq_general_team_per_owner",
+            ),
         ]
 
     def __str__(self):
         return self.name
 
+    def roster(self) -> list["TeamMembership"]:
+        """The memberships this team is made of, right now.
+
+        General is worked out on read rather than kept as real rows. Copying
+        every join and leave into a second table means the copy is wrong the
+        first time a sync is missed, and a roster that is quietly wrong is worse
+        than no roster: people get left off a project because a table drifted.
+        """
+        if not self.is_general:
+            return list(self.memberships.filter(left_on__isnull=True).select_related("user"))
+
+        seen: set[int] = set()
+        rows: list[TeamMembership] = []
+        for membership in (
+            TeamMembership.objects
+            .filter(team__owner_id=self.owner_id, team__is_general=False, left_on__isnull=True)
+            .select_related("user")
+            .order_by("user__first_name", "user__username", "id")
+        ):
+            # Somebody on two of this owner's teams is still one person.
+            if membership.user_id in seen:
+                continue
+            seen.add(membership.user_id)
+            rows.append(membership)
+        return rows
+
     @property
     def member_count(self) -> int:
-        return self.memberships.count()
+        if self.is_general:
+            return len(self.roster())
+        return self.memberships.filter(left_on__isnull=True).count()
+
+
+def ensure_general_team(owner) -> Team:
+    """The owner's General team, created the first time anything asks for it.
+
+    Lazy rather than created with the account, so an owner who signed up before
+    this existed gets one the next time they open the app.
+    """
+    team = Team.objects.filter(owner=owner, is_general=True).first()
+    if team is not None:
+        return team
+
+    # An owner may already have made a team by hand called General.
+    name, n = GENERAL_TEAM_NAME, 1
+    while Team.objects.filter(owner=owner, name=name).exists():
+        n += 1
+        name = f"{GENERAL_TEAM_NAME} ({n})"
+
+    return Team.objects.create(
+        owner=owner,
+        name=name,
+        is_general=True,
+        description="Everyone on every team you keep.",
+    )
 
 
 class TeamMembership(models.Model):

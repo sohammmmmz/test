@@ -176,7 +176,7 @@ def team_members(team) -> list:
     like anybody else — they are placed last, because a lead who reviews
     themselves first tends to run out of meeting.
     """
-    members = [m.user for m in team.memberships.filter(left_on__isnull=True).select_related("user")]
+    members = [m.user for m in team.roster()]
     if team.owner_id not in {m.id for m in members}:
         members.append(team.owner)
     return members

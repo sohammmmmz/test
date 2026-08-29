@@ -1061,3 +1061,88 @@ table.data tbody tr:hover { background: var(--sunk); }
   .fs, .fs-aside, .pop { animation: none; }
   .seat-name[data-current="true"] { transform: none; }
 }
+
+/* --------------------------------------------------------------------------
+   Bandwidth gauge
+
+   A meter that can read past full. Capacity is a nominal number, so somebody
+   genuinely over it must be able to say so — a bar that silently clamps at
+   100% makes the person holding twice the work look identical to the person
+   holding exactly enough, which is the one comparison the report exists for.
+   -------------------------------------------------------------------------- */
+
+.gauge {
+  position: relative;
+  display: block;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+  min-width: 84px;
+}
+.gauge i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--brand);
+  transition: width .7s var(--ease-out);
+}
+.gauge[data-tone="done"] i { background: var(--done); }
+.gauge[data-tone="attention"] i { background: var(--attention); }
+.gauge[data-tone="overdue"] i {
+  /* Striped past the line: the fill has run out of track, and the texture says
+     so without inventing a longer bar. */
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--overdue) 0 5px,
+    color-mix(in srgb, var(--overdue) 68%, #fff) 5px 10px
+  );
+}
+
+/* The 100% mark, so a fill can be read against something. */
+.gauge::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 1px;
+  background: var(--surface);
+  opacity: .9;
+}
+
+.sheet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: .78rem;
+  color: var(--ink-soft);
+  background: var(--surface);
+}
+.sheet-chip b { font-weight: 600; color: var(--ink); font-family: var(--mono); }
+
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+.seg > a, .seg > button {
+  padding: 7px 15px;
+  font-size: .82rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background .2s var(--ease), color .2s var(--ease);
+}
+.seg > a:hover, .seg > button:hover { background: var(--sunk); color: var(--ink); }
+.seg > [data-on="true"] { background: var(--brand); color: var(--on-brand); }
+.seg > [data-on="true"]:hover { background: var(--brand-deep); color: var(--on-brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  .gauge i { transition: none; }
+}

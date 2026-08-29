@@ -11,6 +11,7 @@ const OWNER_NAV = [
   { href: "/projects", label: "Projects", hint: "Repositories and plans" },
   { href: "/team", label: "Team", hint: "People and their days" },
   { href: "/morning", label: "Morning meeting", hint: "Run the round" },
+  { href: "/reports", label: "Reports", hint: "Daily and weekly, as Excel" },
   { href: "/my-day", label: "My day", hint: "Your own list" },
 ];
 

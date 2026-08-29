@@ -162,6 +162,12 @@ WORKING_WEEKDAYS = env.list("WORKING_WEEKDAYS", cast=int, default=[0, 1, 2, 3, 4
 # A todo that has been carried this many days starts showing its age.
 TODO_STALE_AFTER_DAYS = env.int("TODO_STALE_AFTER_DAYS", default=3)
 
+# What one person comfortably holds at once, used to express bandwidth in the
+# reports as a percentage rather than a raw count. A heuristic, and named as one
+# — the reports say what it is measured against so nobody mistakes it for a
+# measurement of the person.
+CAPACITY_OPEN_ITEMS = env.int("CAPACITY_OPEN_ITEMS", default=8)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
