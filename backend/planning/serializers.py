@@ -30,7 +30,7 @@ class MilestoneSerializer(serializers.ModelSerializer):
     class Meta:
         model = Milestone
         fields = ["id", "project", "project_name", "gitlab_iid", "title", "description",
-                  "state", "start_date", "due_date", "web_url", "tasks", "progress",
+                  "state", "start_date", "due_date", "web_url", "is_inherited", "tasks", "progress",
                   "is_overdue", "days_remaining", "created_at"]
 
     def get_progress(self, milestone):

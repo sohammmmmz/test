@@ -148,11 +148,27 @@ def create_project(*, name: str, owner, description: str = "", team=None,
             **fields,
         )
 
-    # 2 & 3. Members onto the repository, then a branch each.
+    # 2. A repository that already existed comes with its own people. Bring
+    #    them across first, so anybody the owner also picked in the dialog is
+    #    matched to their existing membership rather than added twice.
+    if not created_by_app:
+        imported = sync_members_from_repo(project, client=client)
+        warnings.extend(imported["warnings"])
+        if imported["unknown"]:
+            names = ", ".join(u["username"] for u in imported["unknown"][:5] if u["username"])
+            count = len(imported["unknown"])
+            warnings.append(
+                f"{count} on the repository "
+                f"{'has' if count == 1 else 'have'} not signed in here"
+                f"{f' ({names})' if names else ''} — send them an invite link and they "
+                "will appear on the project."
+            )
+
+    # 3 & 4. The owner's picks onto the repository, then a branch each.
     for user in member_users:
         warnings.extend(add_member(project, user, client=client))
 
-    # 4. The documentation branch, created by the commit that writes its README
+    # 5. The documentation branch, created by the commit that writes its README
     #    so no empty branch is left behind if the call fails.
     try:
         ensure_documentation_branch(project, client=client)
@@ -192,7 +208,21 @@ def add_member(project: Project, user, *, client=None) -> list[str]:
         if getattr(exc, "status_code", None) != 409:
             warnings.append(f"Could not add {user.display_name} to the repository: {exc}")
 
-    branch = member.branch_name or branch_for(user)
+    warnings.extend(ensure_branch(project, member, client=client))
+    return warnings
+
+
+def ensure_branch(project: Project, member: ProjectMember, *, client=None) -> list[str]:
+    """Give a member their standing branch, if it is not already cut.
+
+    Split out because it is needed down two paths: adding somebody here, and
+    importing somebody who is already on the repository but has no branch yet.
+    """
+    client = client or service_client()
+    repo = project.repo
+    warnings: list[str] = []
+
+    branch = member.branch_name or branch_for(member.user)
     try:
         if not client.branch_exists(repo.gitlab_project_id, branch):
             client.create_branch(repo.gitlab_project_id, branch=branch,
@@ -206,6 +236,86 @@ def add_member(project: Project, user, *, client=None) -> list[str]:
     member.branch_name = branch
     member.save(update_fields=["branch_name", "synced_to_gitlab", "sync_error"])
     return warnings
+
+
+def sync_members_from_repo(project: Project, *, client=None) -> dict:
+    """Bring the repository's own members onto the project.
+
+    The other direction to add_member, and the one that matters when a
+    repository already existed before this tool saw it: the people are already
+    on it, and re-picking them by hand is both tedious and a chance to miss
+    somebody.
+
+    Direct members only — not people who inherit access through the group.
+    Inherited access is real, but importing it would put every member of a
+    twenty-person group onto every repository the group owns, which is not what
+    anybody means by "who is on this project".
+
+    Somebody on the repository who has never signed in here cannot be added:
+    there is no account to attach the work to. They are named in the result so
+    the owner can send them an invite link rather than wonder why the count
+    disagrees with GitLab.
+    """
+    from django.contrib.auth import get_user_model
+
+    client = client or service_client()
+    repo = getattr(project, "repo", None)
+    if repo is None:
+        return {"added": [], "already": [], "unknown": [],
+                "warnings": ["This project has no repository."]}
+
+    try:
+        payloads = client.list_members(repo.gitlab_project_id, inherited=False)
+    except GitLabError as exc:
+        return {"added": [], "already": [], "unknown": [],
+                "warnings": [f"Could not read the repository's members: {exc}"]}
+
+    User = get_user_model()
+    by_gitlab_id = {
+        u.gitlab_user_id: u
+        for u in User.objects.exclude(gitlab_user_id__isnull=True)
+    }
+    on_project = {m.user_id: m for m in project.members.select_related("user")}
+
+    added: list[str] = []
+    already: list[str] = []
+    unknown: list[dict] = []
+    warnings: list[str] = []
+
+    for payload in payloads:
+        user = by_gitlab_id.get(payload.get("id"))
+        if user is None:
+            unknown.append({
+                "username": payload.get("username", ""),
+                "name": payload.get("name", ""),
+                "access_level": payload.get("access_level"),
+            })
+            continue
+
+        existing = on_project.get(user.id)
+        if existing is not None:
+            already.append(user.display_name)
+            # They may predate the branch, or it may have failed at the time.
+            warnings.extend(ensure_branch(project, existing, client=client))
+            continue
+
+        member = ProjectMember.objects.create(
+            project=project,
+            user=user,
+            branch_name=branch_for(user),
+            # Keep the access level GitLab already gave them rather than
+            # levelling everybody to the default and quietly demoting a
+            # maintainer.
+            access_level=payload.get("access_level") or settings.MEMBER_ACCESS_LEVEL,
+        )
+        warnings.extend(ensure_branch(project, member, client=client))
+        added.append(user.display_name)
+
+    logger.info(
+        "Imported %s member(s) onto %s from %s",
+        len(added), project.name, repo.path_with_namespace,
+    )
+    return {"added": added, "already": already, "unknown": unknown, "warnings": warnings}
 
 
 def remove_member(project: Project, user, *, client=None) -> None:

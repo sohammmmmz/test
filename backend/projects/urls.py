@@ -10,5 +10,6 @@ urlpatterns = [
     # Before the router: its detail route would otherwise swallow these.
     path("available-repos/", views.available_repos, name="available-repos"),
     path("repo-branches/", views.repo_branches, name="repo-branches"),
+    path("phases/", views.phases, name="project-phases"),
     *router.urls,
 ]

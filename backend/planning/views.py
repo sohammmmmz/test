@@ -22,6 +22,7 @@ from .services import (
     PlanningError,
     create_milestone,
     create_task,
+    InheritedMilestone,
     delete_milestone,
     reconcile_project,
     update_milestone,
@@ -94,12 +95,15 @@ class MilestoneViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         try:
             milestone = update_milestone(milestone, **serializer.validated_data)
-        except PlanningError as exc:
+        except (PlanningError, InheritedMilestone) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(MilestoneSerializer(milestone).data)
 
     def destroy(self, request, *args, **kwargs):
-        delete_milestone(self.get_object())
+        try:
+            delete_milestone(self.get_object())
+        except InheritedMilestone as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

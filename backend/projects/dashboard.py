@@ -110,7 +110,10 @@ def dashboard(request):
         "date": day,
         "totals": {
             "projects": len(projects),
-            "active_projects": sum(1 for p in projects if p.status == "active"),
+            # In flight rather than one named status: the lifecycle has seven
+            # phases between draft and closed, and every one of them is work
+            # under way.
+            "active_projects": sum(1 for p in projects if p.is_in_flight),
             "slipping": len(slipping),
             "not_ready": len(not_ready),
             "people": len(people),

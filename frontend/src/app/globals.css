@@ -1146,3 +1146,107 @@ table.data tbody tr:hover { background: var(--sunk); }
 @media (prefers-reduced-motion: reduce) {
   .gauge i { transition: none; }
 }
+
+/* --------------------------------------------------------------------------
+   Delivery phase
+
+   Nine phases are a sequence, not a set. A dropdown answers "which one" and
+   leaves "how far along" to be worked out by counting; the ladder answers the
+   second question at a glance, which is the one somebody opening a project
+   actually has.
+   -------------------------------------------------------------------------- */
+
+.phase-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .2s var(--ease), background .2s var(--ease);
+}
+.phase-button:hover:not(:disabled) { border-color: var(--brand); }
+.phase-button:disabled { cursor: default; background: transparent; border-color: transparent; padding-left: 0; }
+
+.phase-name {
+  flex: 1;
+  min-width: 0;
+  font-size: .88rem;
+  font-weight: 600;
+  font-family: var(--display);
+  letter-spacing: -.01em;
+}
+
+.rungs { display: flex; gap: 3px; }
+.rungs i {
+  flex: 1;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--line);
+  transition: background .45s var(--ease-out);
+}
+.rungs i[data-state="past"] { background: var(--brand); opacity: .45; }
+.rungs i[data-state="now"] { background: var(--brand); }
+/* Closed is an ending, not a stage of the work, so the whole track goes quiet
+   rather than reading as a project still under way at its last phase. */
+.rungs i[data-closed="true"] { background: var(--line-firm); opacity: .6; }
+
+.phase-menu {
+  /* Fixed and at the document root: positioned inside the header it would be
+     trapped by `.dawn`'s stacking context and painted over by the page. */
+  position: fixed;
+  z-index: 120;
+  min-width: 232px;
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-lg);
+  animation: rise .26s var(--ease-out) both;
+}
+
+.phase-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: .84rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+.phase-option:hover:not(:disabled) { background: var(--sunk); color: var(--ink); }
+.phase-option[data-current="true"] {
+  background: var(--brand-wash);
+  color: var(--brand);
+  font-weight: 600;
+}
+.phase-option[data-past="true"] { color: var(--ink-faint); }
+.phase-option:disabled { cursor: default; }
+
+.phase-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+  border: 1.5px solid var(--line-firm);
+}
+.phase-dot[data-state="past"] { background: var(--brand); border-color: var(--brand); opacity: .45; }
+.phase-dot[data-state="now"] { background: var(--brand); border-color: var(--brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rungs i, .phase-option, .phase-button { transition: none; }
+  .phase-menu { animation: none; }
+}

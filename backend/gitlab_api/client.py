@@ -279,8 +279,16 @@ class GitLabClient:
 
     # -- members -----------------------------------------------------------
 
-    def list_members(self, project_id: int) -> list[dict]:
-        return self.get_list(f"/projects/{project_id}/members/all")
+    def list_members(self, project_id: int, *, inherited: bool = True) -> list[dict]:
+        """Who is on the repository.
+
+        ``inherited`` includes people who get access through the group. That is
+        the honest answer to "who can push", but the wrong one for "who did
+        somebody put on this project" — for a group of twenty it would place all
+        twenty on every repository in it.
+        """
+        path = f"/projects/{project_id}/members/all" if inherited else f"/projects/{project_id}/members"
+        return self.get_list(path)
 
     def add_member(self, project_id: int, *, user_id: int, access_level: int) -> dict:
         return self.request(
@@ -293,8 +301,16 @@ class GitLabClient:
 
     # -- milestones --------------------------------------------------------
 
-    def list_milestones(self, project_id: int) -> list[dict]:
-        return self.get_list(f"/projects/{project_id}/milestones")
+    def list_milestones(self, project_id: int, *, include_ancestors: bool = True) -> list[dict]:
+        """Milestones a project's work can be filed under.
+
+        Ancestors included: a team that plans at the group level has no project
+        milestones at all, and reading only the project's own would report an
+        empty plan for work that is visibly there. (``include_parent_milestones``
+        is the deprecated spelling of the same thing.)
+        """
+        params = {"include_ancestors": "true"} if include_ancestors else None
+        return self.get_list(f"/projects/{project_id}/milestones", params=params)
 
     def create_milestone(self, project_id: int, *, title: str, description: str = "",
                          start_date=None, due_date=None) -> dict:
@@ -314,18 +330,54 @@ class GitLabClient:
     def delete_milestone(self, project_id: int, milestone_id: int) -> None:
         self.request("DELETE", f"/projects/{project_id}/milestones/{milestone_id}")
 
-    # -- issues ------------------------------------------------------------
+    # -- tasks -------------------------------------------------------------
+    #
+    # A task here is a GitLab *work item of type task*, not an issue. They share
+    # one REST endpoint — /issues carries every work item type, selected with
+    # issue_type — which is why the paths below still read "issues".
+    #
+    # Keeping them apart matters to the person using GitLab: the Issues tab
+    # stays theirs, for bugs somebody filed, and planning done in this tool
+    # lands under Tasks where it belongs. A task takes milestone_id directly,
+    # so the Milestone -> Task hierarchy needs no parent link — which is just as
+    # well, since REST cannot make a task the child of an issue.
 
-    def list_issues(self, project_id: int, *, updated_after=None) -> list[dict]:
+    TASK_TYPE = "task"
+
+    def list_tasks(self, project_id: int, *, updated_after=None,
+                   issue_types: list[str] | None = None) -> list[dict]:
+        """Work items this tool is responsible for.
+
+        Filtered to tasks, so an issue somebody opened by hand is read by nobody
+        here and stays entirely theirs. ``issue_types`` widens that during a
+        changeover, for a project whose planning predates the split.
+        """
         params: dict[str, Any] = {"scope": "all", "state": "all"}
         if updated_after is not None:
             params["updated_after"] = updated_after.isoformat()
-        return self.get_list(f"/projects/{project_id}/issues", params=params)
 
-    def create_issue(self, project_id: int, *, title: str, description: str = "",
-                     milestone_id=None, assignee_id=None, due_date=None,
-                     labels=None) -> dict:
-        body: dict[str, Any] = {"title": title, "description": description}
+        wanted = issue_types or [self.TASK_TYPE]
+        rows: list[dict] = []
+        seen: set[int] = set()
+        for issue_type in wanted:
+            # One call per type: issue_type takes a single value, not a list.
+            params_for_type = {**params, "issue_type": issue_type}
+            for row in self.paginate(f"/projects/{project_id}/issues",
+                                     params=params_for_type):
+                if row["id"] in seen:
+                    continue
+                seen.add(row["id"])
+                rows.append(row)
+        return rows
+
+    def create_task(self, project_id: int, *, title: str, description: str = "",
+                    milestone_id=None, assignee_id=None, due_date=None,
+                    labels=None) -> dict:
+        body: dict[str, Any] = {
+            "title": title,
+            "description": description,
+            "issue_type": self.TASK_TYPE,
+        }
         if milestone_id:
             body["milestone_id"] = milestone_id
         # Free tier takes a single assignee_id; assignee_ids is Premium.
@@ -337,9 +389,13 @@ class GitLabClient:
             body["labels"] = ",".join(labels)
         return self.request("POST", f"/projects/{project_id}/issues", json=body)
 
-    def update_issue(self, project_id: int, issue_iid: int, **fields) -> dict:
+    def update_task(self, project_id: int, task_iid: int, **fields) -> dict:
         body = {k: (_date(v) if k.endswith("_date") and v else v) for k, v in fields.items()}
-        return self.request("PUT", f"/projects/{project_id}/issues/{issue_iid}", json=body)
+        return self.request("PUT", f"/projects/{project_id}/issues/{task_iid}", json=body)
+
+    def convert_to_task(self, project_id: int, task_iid: int) -> dict:
+        """Turn an existing issue into a task, leaving everything else alone."""
+        return self.update_task(project_id, task_iid, issue_type=self.TASK_TYPE)
 
 
 def _date(value) -> str:

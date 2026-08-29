@@ -77,6 +77,28 @@ copied, not a request to be politely refused.
 Refreshing happens in Next.js middleware, the only place that can rewrite the
 cookies the current render reads *and* set them on the response.
 
+### The delivery lifecycle
+
+A project sits on one of nine phases, in order:
+
+**Draft** → Requirement Gathering → Development → Testing → Deployment → UAT →
+Production → Maintenance → **Closed**
+
+The order is the point. Position in the list *is* progress, which is why the
+screen draws a ladder rather than printing a label — "how far along is this" is
+the question somebody has on opening a project, and a name alone cannot answer
+it. The sequence is declared once, in `ProjectStatus`, and served from
+`/api/projects/phases/` so the picker has no copy of its own.
+
+Counts of "active" mean **in flight**: anything that is neither Draft nor
+Closed. There is no single active phase any more, and seven of the nine are work
+under way.
+
+Only the project's owner can move it on. The old five states migrate across —
+`active` becomes Development, `completed` and `archived` become Closed. `on_hold`
+is the one with no successor, since a lifecycle has no paused state; those land
+back on Draft and are worth re-checking by hand.
+
 ### Creating a project
 
 Either link a repository you already have, or let one be created. Linking is
@@ -107,18 +129,63 @@ Six steps, in an order where each needs the last:
 Failures after step 1 are reported rather than raised: a project whose third
 branch failed is a real project with one thing to fix.
 
+### Tasks are work items, not issues
+
+A task here is a GitLab **work item of type task**, not an issue. Both live
+behind one REST endpoint — `/issues` carries every work item type, selected with
+`issue_type` — which is why the client's paths still read "issues".
+
+They are kept apart for the person using GitLab. The **Issues** tab stays theirs,
+for bugs somebody filed; planning done in this tool lands under **Tasks**, where
+it belongs. Reconciliation reads only tasks, so an issue opened by hand is read
+by nobody here and is never rewritten.
+
+A task takes `milestone_id` directly, so Milestone → Task needs no parent link —
+just as well, since REST cannot make a task the child of an issue (it comes out
+"related" instead).
+
+#### Syncing a plan made in GitLab
+
+Opening a project reconciles it, which is enough while you are working in one.
+**Sync with GitLab**, on the Projects tab, does every project at once — for a
+repository whose plan was built in GitLab and which this tool has never opened,
+where the list would otherwise report an empty plan for work that is visibly
+there.
+
+The loop runs in the browser, a few projects at a time, so the button counts up
+rather than spinning: each project is several round trips to GitLab, and across a
+dozen of them a silent spinner stops being credible.
+
+Milestones are read with `include_ancestors`, so a team that plans at the
+**group** level is not reported as having no plan. A group milestone is shown
+with a *from the group* tag and cannot be edited or deleted here — it is shared
+with the group's other projects, and the project's own endpoint cannot reach it
+anyway.
+
+If a project was planned before the task/issue split, its work is sitting in
+GitLab as plain issues and nothing reads them any more. Convert it once:
+
+```bash
+python manage.py convert_issues_to_tasks --dry-run   # say what would change
+python manage.py convert_issues_to_tasks             # do it
+```
+
+Only rows this tool created are touched — each is a Task in the database with a
+GitLab iid — so an issue somebody opened by hand is never in scope. Safe to run
+twice.
+
 ### Milestones and tasks
 
-Two levels. A milestone holds tasks directly, and each task is one GitLab issue
-with one assignee — multiple assignees is a Premium feature, and GitLab's child
-work items do not inherit their parent's milestone, so a third level would mean
-maintaining in Postgres what GitLab would not maintain for us.
+Two levels. A milestone holds tasks directly, and each task carries one assignee
+— multiple assignees is a Premium feature, and a third level would mean
+maintaining a hierarchy in Postgres that GitLab's REST API will not maintain for
+us.
 
 Writes go upstream first and are mirrored locally only once GitLab accepts them,
-so the board can never show a task that is not a real issue. Opening a project
-reconciles the other way, so an issue closed in GitLab's own UI is reflected
-here rather than silently overwritten — **and its todo is ticked off**, because
-they are the same piece of work.
+so the board can never show a task that does not exist in GitLab. Opening a
+project reconciles the other way, so a task closed in GitLab's own UI is
+reflected here rather than silently overwritten — **and its todo is ticked
+off**, because they are the same piece of work.
 
 ### Inviting people
 
@@ -147,6 +214,28 @@ copy is wrong the first time a sync is missed, and a roster that is quietly
 wrong leaves people off projects. Nothing can be added to General directly, and
 it cannot be renamed or deleted; it sorts last so a dropdown still defaults to a
 real team rather than to everybody.
+
+### Members, both directions
+
+Adding somebody to a project here puts them on the **GitLab repository** too, at
+`MEMBER_ACCESS_LEVEL`, and cuts them a standing branch (`dev/<handle>`). That has
+always been the case — a project member who cannot push is not a member.
+
+The other direction is **Import from repository**, on the project page. It reads
+who is already on the repository and brings them onto the project, keeping the
+access level GitLab gave them rather than levelling everybody to the default. It
+runs automatically when an existing repository is linked, since the people are
+the reason it already existed.
+
+Direct members only, not people who inherit access through the group: inherited
+access is real, but importing it would put every member of a twenty-person group
+onto every repository the group owns, which is not what anyone means by "who is
+on this project".
+
+Somebody on the repository who has never signed in here cannot be added — there
+is no account to attach work to. They are named in the result so the owner can
+send them an invite link rather than wonder why the count
+disagrees with GitLab.
 
 ### The day
 

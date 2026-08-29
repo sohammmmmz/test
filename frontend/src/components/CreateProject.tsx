@@ -80,7 +80,9 @@ export function CreateProject({ teams }: { teams: Team[] }) {
           description: description.trim(),
           team: teamId || null,
           member_ids: picked,
-          status: "active",
+          // No status: a new project starts at Draft, which is the model's own
+          // default. Naming a phase here is how the browser ends up asserting
+          // one that no longer exists.
           repo_reference:
             source === "existing" && repo ? String(repo.gitlab_project_id) : null,
           documentation_branch: docsBranch.trim() || null,

@@ -12,11 +12,31 @@ from django.utils import timezone
 
 
 class ProjectStatus(models.TextChoices):
-    PLANNING = "planning", "Planning"
-    ACTIVE = "active", "Active"
-    ON_HOLD = "on_hold", "On hold"
-    COMPLETED = "completed", "Completed"
-    ARCHIVED = "archived", "Archived"
+    """Where a project has got to in its delivery lifecycle.
+
+    Declared in order, and read in order: the position in this list *is* the
+    progress, which is why the screen can draw it as a track rather than a
+    label. Anything inserted later belongs at its place in the sequence, not
+    appended.
+    """
+
+    DRAFT = "draft", "Draft"
+    REQUIREMENTS = "requirements", "Requirement Gathering"
+    DEVELOPMENT = "development", "Development Phase"
+    TESTING = "testing", "Testing Phase"
+    DEPLOYMENT = "deployment", "Deployment Phase"
+    UAT = "uat", "UAT Phase"
+    PRODUCTION = "production", "Production Phase"
+    MAINTENANCE = "maintenance", "Maintenance Phase"
+    CLOSED = "closed", "Closed"
+
+
+# The order above, as a list, so both ends can say how far along a project is
+# without hard-coding the sequence a second time.
+PROJECT_PHASES = [choice.value for choice in ProjectStatus]
+
+# Neither started nor finished: what "in flight" means for counting.
+DORMANT_STATUSES = {ProjectStatus.DRAFT, ProjectStatus.CLOSED}
 
 
 class Project(models.Model):
@@ -24,7 +44,7 @@ class Project(models.Model):
     slug = models.SlugField(max_length=255, unique=True)
     description = models.TextField(blank=True)
     status = models.CharField(
-        max_length=16, choices=ProjectStatus.choices, default=ProjectStatus.PLANNING
+        max_length=24, choices=ProjectStatus.choices, default=ProjectStatus.DRAFT
     )
 
     owner = models.ForeignKey(
@@ -46,6 +66,22 @@ class Project(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def is_in_flight(self) -> bool:
+        """Under way: past the draft and not yet closed."""
+        return self.status not in DORMANT_STATUSES
+
+    @property
+    def phase_index(self) -> int:
+        try:
+            return PROJECT_PHASES.index(self.status)
+        except ValueError:
+            return 0
+
+    @property
+    def phase_count(self) -> int:
+        return len(PROJECT_PHASES)
 
     # -- progress ----------------------------------------------------------
 

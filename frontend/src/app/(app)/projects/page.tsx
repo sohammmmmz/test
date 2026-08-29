@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CreateProject } from "@/components/CreateProject";
+import { SyncProjects } from "@/components/SyncProjects";
 import { Empty, Meter } from "@/components/ui";
 import { api, ApiError, currentUser } from "@/lib/api";
 import { plural, relativeDue } from "@/lib/format";
@@ -41,11 +42,15 @@ export default async function ProjectsPage() {
             <h1>{projects.length} {plural(projects.length, "repository", "repositories")}</h1>
             <p className="soft" style={{ fontSize: ".93rem", maxWidth: "54ch" }}>
               Every project is a GitLab repository. Creating one here creates the repo,
-              a branch for each member and a documentation branch.
+              a branch for each member and a documentation branch. Planned in GitLab
+              instead? Sync pulls the milestones and tasks across.
               {slipping > 0 && ` ${slipping} ${plural(slipping, "is", "are")} past a milestone date.`}
             </p>
           </div>
-          {user.is_owner && <CreateProject teams={teams} />}
+          <div className="row gap-2 center wrap" style={{ alignItems: "flex-start" }}>
+            <SyncProjects projects={projects} />
+            {user.is_owner && <CreateProject teams={teams} />}
+          </div>
         </div>
       </header>
 
@@ -72,10 +77,20 @@ export default async function ProjectsPage() {
                   <div className="row between gap-2" style={{ alignItems: "flex-start" }}>
                     <h3 style={{ fontSize: "1.06rem" }}>{project.name}</h3>
                     <span className={`pill ${project.progress.is_slipping ? "pill-overdue"
-                      : project.status === "active" ? "pill-done" : ""}`}>
-                      {project.progress.is_slipping ? "slipping" : project.status}
+                      : project.is_in_flight ? "pill-brand" : ""}`}>
+                      {project.progress.is_slipping ? "slipping" : project.status_display}
                     </span>
                   </div>
+                  {/* Where it has got to, at the same glance as the name. */}
+                  <span className="rungs" role="img"
+                        aria-label={`Phase ${project.phase_index + 1} of ${project.phase_count}`}>
+                    {Array.from({ length: project.phase_count }, (_, i) => (
+                      <i key={i}
+                         data-state={i < project.phase_index ? "past"
+                           : i === project.phase_index ? "now" : "ahead"}
+                         data-closed={project.status === "closed"} />
+                    ))}
+                  </span>
                   {project.description && (
                     <p className="soft" style={{ fontSize: ".84rem",
                                                  display: "-webkit-box", WebkitLineClamp: 2,

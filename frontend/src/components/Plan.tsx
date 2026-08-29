@@ -154,6 +154,13 @@ function MilestoneCard({
             <h3>{milestone.title}</h3>
             {milestone.is_overdue && <span className="pill pill-overdue">overdue</span>}
             {done && <span className="pill pill-done">closed</span>}
+            {/* A group milestone is shared with the group's other projects, so
+                it is shown but never edited from inside one of them. */}
+            {milestone.is_inherited && (
+              <span className="pill" title="Belongs to a parent group — edit it in GitLab">
+                from the group
+              </span>
+            )}
           </div>
           <div className="row gap-3 center wrap" style={{ fontSize: ".76rem" }}>
             <span className="mono faint">

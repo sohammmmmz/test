@@ -222,7 +222,7 @@ def _summary_sheet(book: Workbook, report: dict, covers: str):
 
 def _projects_sheet(book: Workbook, report: dict, covers: str):
     columns = [
-        ("Project", 26), ("Status", 12), ("Repository", 30), ("Team", 16),
+        ("Project", 26), ("Status", 21), ("Phase", 8), ("Repository", 30), ("Team", 16),
         ("People", 8), ("Progress", 10), ("Tasks done", 11), ("Tasks", 8),
         ("Closed this period", 12), ("Milestones", 11), ("Milestones closed", 12),
         ("Overdue milestones", 12), ("Slipping", 10), ("Next milestone", 24),
@@ -231,14 +231,15 @@ def _projects_sheet(book: Workbook, report: dict, covers: str):
     ]
     sheet, header = _sheet(book, "Projects", covers, columns)
     rows = [[
-        p["name"], p["status"], p["repository"], p["team"], p["people"],
+        p["name"], p["status"], f"{p['phase']}/{p['phase_of']}",
+        p["repository"], p["team"], p["people"],
         p["percent"], p["tasks_done"], p["tasks"], p["closed_in_period"],
         p["milestones"], p["milestones_closed"], p["overdue_milestones"],
         "yes" if p["is_slipping"] else "no", p["next_milestone"], p["next_due"],
         p["started_on"], p["target_end_on"], p["setup"], p["missing"],
     ] for p in report["projects"]]
     _write(sheet, header, rows)
-    _percent(sheet, header, len(rows), 6)
+    _percent(sheet, header, len(rows), 7)
 
 
 def _people_sheet(book: Workbook, report: dict, covers: str):

@@ -33,6 +33,11 @@ class Milestone(models.Model):
     due_date = models.DateField(null=True, blank=True)
     web_url = models.URLField(blank=True)
 
+    # Inherited from a parent group rather than belonging to this project.
+    # Work can be filed under it, but it cannot be edited or deleted through
+    # the project's own endpoint — so the screen must not offer to.
+    is_inherited = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

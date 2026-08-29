@@ -20,6 +20,8 @@ export function ProjectMembers({ projectId, members, teams, canEdit }: {
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<number | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
   const onProject = new Set(members.map((m) => m.user.id));
@@ -46,6 +48,53 @@ export function ProjectMembers({ projectId, members, teams, canEdit }: {
     router.refresh();
   }
 
+  /**
+   * Pull the repository's own members onto the project.
+   *
+   * Adding somebody here already puts them on the repository; this is the
+   * other direction, for when GitLab is where access was actually granted — a
+   * repository linked from outside, or somebody added in GitLab's own UI.
+   */
+  async function importFromRepo() {
+    setImporting(true);
+    setFailure(null);
+    setNote(null);
+
+    const res = await fetch(`/api/proxy/api/projects/${projectId}/sync-members/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await res.json().catch(() => ({}));
+    setImporting(false);
+
+    if (!res.ok) {
+      setFailure(data.detail ?? "The repository's members could not be read.");
+      return;
+    }
+
+    const report = data.imported ?? {};
+    const added: string[] = report.added ?? [];
+    const unknown: { username: string }[] = report.unknown ?? [];
+    const lines: string[] = [];
+
+    lines.push(
+      added.length
+        ? `Added ${added.join(", ")}.`
+        : "Everyone on the repository is already on this project.",
+    );
+    if (unknown.length) {
+      lines.push(
+        `${unknown.length} on the repository ${unknown.length === 1 ? "has" : "have"} ` +
+        `not signed in here (${unknown.map((u) => u.username).filter(Boolean).join(", ")}) — ` +
+        "send them an invite link and they will appear.",
+      );
+    }
+    if (report.warnings?.length) lines.push(report.warnings.join(" "));
+
+    setNote(lines.join(" "));
+    router.refresh();
+  }
+
   async function remove(userId: number) {
     setBusy(userId);
     await fetch(`/api/proxy/api/projects/${projectId}/members/${userId}/`, { method: "DELETE" });
@@ -56,9 +105,30 @@ export function ProjectMembers({ projectId, members, teams, canEdit }: {
   return (
     <div className="panel rise" style={{ overflow: "hidden" }}>
       <div className="panel-head">
-        <h2 style={{ fontSize: "1.02rem" }}>On this project</h2>
-        <span className="eyebrow">{members.length} people</span>
+        <div className="stack">
+          <h2 style={{ fontSize: "1.02rem" }}>On this project</h2>
+          <span className="faint" style={{ fontSize: ".76rem" }}>
+            Everyone here has repository access and a branch of their own.
+          </span>
+        </div>
+        <span className="row gap-2 center">
+          {canEdit && (
+            <button className="btn btn-sm" onClick={importFromRepo} disabled={importing}
+                    title="Pull in whoever is already on the GitLab repository">
+              {importing && <span className="spin" />}
+              Import from repository
+            </button>
+          )}
+          <span className="eyebrow">{members.length} people</span>
+        </span>
       </div>
+
+      {note && (
+        <p className="fade" style={{ padding: "10px 18px", fontSize: ".81rem",
+                    color: "var(--brand)", background: "var(--brand-wash)" }}>
+          {note}
+        </p>
+      )}
 
       {failure && (
         <p style={{ padding: "10px 18px", fontSize: ".81rem", color: "var(--attention)",

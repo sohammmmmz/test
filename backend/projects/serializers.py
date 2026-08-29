@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from accounts.serializers import UserSerializer
 
-from .models import Document, GitLabRepo, Project, ProjectMember
+from .models import Document, GitLabRepo, Project, ProjectMember, ProjectStatus
 
 
 class GitLabRepoSerializer(serializers.ModelSerializer):
@@ -48,10 +48,17 @@ class ProjectListSerializer(serializers.ModelSerializer):
     progress = serializers.SerializerMethodField()
     readiness = serializers.SerializerMethodField()
     member_count = serializers.IntegerField(source="members.count", read_only=True)
+    # The phase's own name, and where it sits in the lifecycle, so a screen can
+    # draw the ladder without keeping its own copy of the order.
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    phase_index = serializers.IntegerField(read_only=True)
+    phase_count = serializers.IntegerField(read_only=True)
+    is_in_flight = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Project
-        fields = ["id", "name", "slug", "description", "status", "owner",
+        fields = ["id", "name", "slug", "description", "status", "status_display",
+                  "phase_index", "phase_count", "is_in_flight", "owner",
                   "team_name", "repo_path", "repo_url", "started_on",
                   "target_end_on", "progress", "readiness", "member_count",
                   "created_at"]
@@ -85,7 +92,9 @@ class ProjectCreateSerializer(serializers.Serializer):
     member_ids = serializers.ListField(
         child=serializers.IntegerField(), required=False, default=list
     )
-    status = serializers.CharField(required=False, allow_blank=True)
+    status = serializers.ChoiceField(
+        choices=ProjectStatus.choices, required=False, allow_blank=True
+    )
     started_on = serializers.DateField(required=False, allow_null=True)
     target_end_on = serializers.DateField(required=False, allow_null=True)
 

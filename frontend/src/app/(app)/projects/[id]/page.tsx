@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { DeleteProject } from "@/components/DeleteProject";
 import { Documents } from "@/components/Documents";
+import { PhasePicker } from "@/components/PhasePicker";
 import { Plan } from "@/components/Plan";
 import { ProjectMembers } from "@/components/ProjectMembers";
 import { Avatar, Empty, Meter } from "@/components/ui";
@@ -78,6 +79,16 @@ export default async function ProjectPage({
               </div>
             </div>
 
+            <div className="row gap-5 wrap" style={{ alignItems: "flex-end" }}>
+            <PhasePicker
+              projectId={project.id}
+              status={project.status}
+              statusDisplay={project.status_display}
+              phaseIndex={project.phase_index}
+              phaseCount={project.phase_count}
+              canEdit={user.id === project.owner.id}
+            />
+
             <div className="stack gap-2" style={{ minWidth: 210 }}>
               <div className="row between">
                 <span className="eyebrow">Progress</span>
@@ -93,6 +104,7 @@ export default async function ProjectPage({
                 {project.progress.next_milestone &&
                   ` · ${project.progress.next_milestone} ${relativeDue(project.progress.next_due_date)}`}
               </span>
+            </div>
             </div>
           </div>
         </div>

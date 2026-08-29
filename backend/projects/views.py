@@ -16,7 +16,7 @@ from gitlab_api.gateway import service_client
 from teams.models import Team
 
 from .documents import DocumentUploadError, upload_document
-from .models import GitLabRepo, Project
+from .models import GitLabRepo, Project, ProjectStatus
 from .serializers import (
     DocumentSerializer,
     DocumentUploadSerializer,
@@ -31,6 +31,7 @@ from .services import (
     create_project,
     delete_project,
     remove_member,
+    sync_members_from_repo,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,22 @@ def available_repos(request):
             }
             for r in rows
         ],
+    })
+
+
+@api_view(["GET"])
+def phases(request):
+    """The delivery lifecycle, in order.
+
+    Served rather than hard-coded in the browser so the sequence is declared in
+    exactly one place. A phase inserted later shows up in the picker without a
+    frontend release.
+    """
+    return Response({
+        "phases": [
+            {"value": value, "label": label, "index": index}
+            for index, (value, label) in enumerate(ProjectStatus.choices)
+        ]
     })
 
 
@@ -217,6 +234,21 @@ class ProjectViewSet(viewsets.ModelViewSet):
         payload = ProjectDetailSerializer(project).data
         payload["warnings"] = warnings
         return Response(payload, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="sync-members")
+    def sync_members(self, request, pk=None):
+        """Bring the repository's own members onto the project.
+
+        The other direction to adding somebody here, and the one that matters
+        when the repository is where access was actually granted — a linked
+        repository that predates this tool, or somebody added in GitLab's own UI
+        since.
+        """
+        project = self.get_object()
+        report = sync_members_from_repo(project)
+        payload = ProjectDetailSerializer(project).data
+        payload["imported"] = report
+        return Response(payload)
 
     @action(detail=True, methods=["delete"], url_path=r"members/(?P<user_id>\d+)")
     def remove_project_member(self, request, pk=None, user_id=None):

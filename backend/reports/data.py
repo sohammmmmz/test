@@ -113,7 +113,9 @@ def _project_rows(owner, period: Period) -> list[dict]:
         rows.append({
             "name": project.name,
             "status": project.get_status_display(),
-            "is_active": project.status == "active",
+            "is_active": project.is_in_flight,
+            "phase": project.phase_index + 1,
+            "phase_of": project.phase_count,
             "repository": project.repo.path_with_namespace if hasattr(project, "repo") else "",
             "repo_url": project.repo.web_url if hasattr(project, "repo") else "",
             "team": project.team.name if project.team else "—",

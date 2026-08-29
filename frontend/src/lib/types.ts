@@ -50,12 +50,20 @@ export type Readiness = {
   is_ready: boolean;
 };
 
+export type Phase = { value: string; label: string; index: number };
+
 export type Project = {
   id: number;
   name: string;
   slug: string;
   description: string;
   status: string;
+  status_display: string;
+  // Position in the delivery lifecycle. The order lives on the backend; these
+  // two are what a screen needs to draw it without keeping a copy.
+  phase_index: number;
+  phase_count: number;
+  is_in_flight: boolean;
   owner: User;
   team_name: string | null;
   repo_path: string | null;
@@ -137,6 +145,9 @@ export type Milestone = {
   start_date: string | null;
   due_date: string | null;
   web_url: string;
+  // Owned by a parent group, so it can hold this project's work but cannot be
+  // edited or deleted through the project.
+  is_inherited: boolean;
   tasks: Task[];
   progress: { total: number; done: number; percent: number };
   is_overdue: boolean;
@@ -361,6 +372,8 @@ export type ReportProject = {
   name: string;
   status: string;
   is_active: boolean;
+  phase: number;
+  phase_of: number;
   repository: string;
   repo_url: string;
   team: string;

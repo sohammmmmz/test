@@ -196,7 +196,11 @@ export default async function ReportsPage({
                       </td>
                       <td>
                         <span className={`pill ${row.is_slipping ? "pill-overdue" : ""}`}>
-                          {row.is_slipping ? "slipping" : row.status.toLowerCase()}
+                          {row.is_slipping ? "slipping" : row.status}
+                        </span>
+                        <span className="mono faint" style={{ fontSize: ".68rem", display: "block",
+                                                              marginTop: 3 }}>
+                          phase {row.phase}/{row.phase_of}
                         </span>
                       </td>
                       <td className="mono">

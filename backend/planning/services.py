@@ -65,7 +65,16 @@ def create_milestone(project, *, title: str, description: str = "",
     )
 
 
+class InheritedMilestone(Exception):
+    """A group milestone cannot be changed from inside one of its projects."""
+
+
 def update_milestone(milestone: Milestone, **fields) -> Milestone:
+    if milestone.is_inherited:
+        raise InheritedMilestone(
+            f"'{milestone.title}' belongs to a parent group. Edit it in GitLab, "
+            "where the other projects using it can see the change."
+        )
     repo = _repo(milestone.project)
     client = service_client()
 
@@ -93,6 +102,11 @@ def update_milestone(milestone: Milestone, **fields) -> Milestone:
 
 
 def delete_milestone(milestone: Milestone) -> None:
+    if milestone.is_inherited:
+        raise InheritedMilestone(
+            f"'{milestone.title}' belongs to a parent group. Deleting it here would "
+            "take it from every project using it, so it is left to GitLab."
+        )
     repo = _repo(milestone.project)
     if milestone.gitlab_id:
         try:
@@ -114,7 +128,7 @@ def create_task(milestone: Milestone, *, title: str, description: str = "",
     client = service_client()
 
     try:
-        payload = client.create_issue(
+        payload = client.create_task(
             repo.gitlab_project_id,
             title=title,
             description=description,
@@ -168,7 +182,7 @@ def update_task(task: Task, **fields) -> Task:
 
     if task.gitlab_iid and upstream:
         try:
-            client.update_issue(repo.gitlab_project_id, task.gitlab_iid, **upstream)
+            client.update_task(repo.gitlab_project_id, task.gitlab_iid, **upstream)
         except GitLabNotFound:
             logger.warning("Issue %s no longer exists in GitLab", task.gitlab_iid)
             task.gitlab_iid = None
@@ -216,10 +230,14 @@ def _complete_todos_for(task: Task) -> int:
 
 
 def reconcile_project(project) -> dict:
-    """Re-read milestones and issues from GitLab into this database.
+    """Re-read milestones and tasks from GitLab into this database.
 
-    Run when a project is opened. GitLab is authoritative: an issue closed in
-    its UI closes here, and the todo pointing at it is ticked off too.
+    Run when a project is opened. GitLab is authoritative: a task closed in its
+    UI closes here, and the todo pointing at it is ticked off too.
+
+    Only work items of type *task* are read. Issues somebody opened by hand are
+    left entirely alone — they are not planning artefacts and this tool has no
+    business rewriting them.
     """
     repo = getattr(project, "repo", None)
     if repo is None:
@@ -228,7 +246,7 @@ def reconcile_project(project) -> dict:
     client = service_client()
     try:
         milestone_payloads = client.list_milestones(repo.gitlab_project_id)
-        issue_payloads = client.list_issues(repo.gitlab_project_id)
+        issue_payloads = client.list_tasks(repo.gitlab_project_id)
     except GitLabError as exc:
         logger.warning("Could not reconcile %s: %s", project.name, exc)
         return {"milestones": 0, "tasks": 0, "todos_completed": 0, "error": str(exc)}
@@ -246,6 +264,10 @@ def reconcile_project(project) -> dict:
                 "start_date": parse_date(payload["start_date"]) if payload.get("start_date") else None,
                 "due_date": parse_date(payload["due_date"]) if payload.get("due_date") else None,
                 "web_url": payload.get("web_url", "") or "",
+                # A group milestone carries group_id where a project milestone
+                # carries project_id. It can hold this project's work but lives
+                # somewhere this project's endpoints cannot reach.
+                "is_inherited": bool(payload.get("group_id")),
             },
         )
         by_gitlab_id[payload["id"]] = milestone
