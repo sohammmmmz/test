@@ -25,6 +25,9 @@ export function Plan({ projectId, milestones, members, canEdit, currentUserId }:
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  // Which milestone is open. One at a time: comparing two task lists side by
+  // side is not something anybody does, and it is what makes the grid tall.
+  const [openId, setOpenId] = useState<number | null>(null);
 
   const refresh = () => startTransition(() => router.refresh());
 
@@ -63,6 +66,12 @@ export function Plan({ projectId, milestones, members, canEdit, currentUserId }:
 
   const active = milestones.filter((m) => m.state === "active");
   const closed = milestones.filter((m) => m.state === "closed");
+  const ordered = [...active, ...closed];
+  const open = ordered.find((m) => m.id === openId) ?? null;
+
+  const totalTasks = milestones.reduce((n, m) => n + m.progress.total, 0);
+  const doneTasks = milestones.reduce((n, m) => n + m.progress.done, 0);
+  const late = active.filter((m) => m.is_overdue).length;
 
   return (
     <section className="stack gap-4">
@@ -70,7 +79,11 @@ export function Plan({ projectId, milestones, members, canEdit, currentUserId }:
         <div className="stack gap-1">
           <h2>The plan</h2>
           <span className="faint" style={{ fontSize: ".8rem" }}>
-            Milestones and tasks here are real GitLab milestones and issues.
+            {milestones.length} {milestones.length === 1 ? "milestone" : "milestones"} ·{" "}
+            {doneTasks}/{totalTasks} {totalTasks === 1 ? "task" : "tasks"} done
+            {late > 0 && (
+              <span style={{ color: "var(--overdue)" }}> · {late} past its date</span>
+            )}
           </span>
         </div>
         {canEdit && (
@@ -108,51 +121,154 @@ export function Plan({ projectId, milestones, members, canEdit, currentUserId }:
         </div>
       )}
 
-      <div className="stack gap-4">
-        {[...active, ...closed].map((milestone, index) => (
-          <MilestoneCard
-            key={milestone.id}
-            milestone={milestone}
-            members={members}
-            canEdit={canEdit}
-            currentUserId={currentUserId}
-            busy={busy}
-            index={index}
-            onToggleTask={toggleTask}
-            onReassign={reassign}
-            onChanged={refresh}
-          />
-        ))}
-      </div>
+      {ordered.length > 0 && (
+        <div className="mgrid">
+          {ordered.map((milestone, index) => (
+            <MilestoneTile
+              key={milestone.id}
+              milestone={milestone}
+              index={index}
+              isOpen={milestone.id === openId}
+              onOpen={() => setOpenId(milestone.id === openId ? null : milestone.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {open && (
+        <MilestoneDetail
+          key={open.id}
+          milestone={open}
+          members={members}
+          canEdit={canEdit}
+          currentUserId={currentUserId}
+          busy={busy}
+          onToggleTask={toggleTask}
+          onReassign={reassign}
+          onChanged={refresh}
+          onClose={() => setOpenId(null)}
+        />
+      )}
     </section>
   );
 }
 
-function MilestoneCard({
-  milestone, members, canEdit, currentUserId, busy, index,
-  onToggleTask, onReassign, onChanged,
+/**
+ * One milestone as a square.
+ *
+ * The count sits inside its own progress ring, so "eight tasks, most of them
+ * done" is a single glance rather than a number and then a bar to interpret.
+ */
+function MilestoneTile({ milestone, index, isOpen, onOpen }: {
+  milestone: Milestone;
+  index: number;
+  isOpen: boolean;
+  onOpen: () => void;
+}) {
+  const { total, done, percent } = milestone.progress;
+  const openCount = total - done;
+  const closed = milestone.state === "closed";
+  const late = milestone.is_overdue && !closed;
+
+  return (
+    <button
+      className="mtile rise"
+      style={{ animationDelay: `${index * 45}ms` }}
+      data-open={isOpen}
+      data-late={late}
+      data-state={milestone.state}
+      onClick={onOpen}
+      aria-expanded={isOpen}
+      title={milestone.title}
+    >
+      <span className="stack gap-1">
+        <span className="mtile-title">{milestone.title}</span>
+        <span className="mono" style={{ fontSize: ".67rem",
+                     color: late ? "var(--overdue)" : "var(--ink-faint)" }}>
+          {milestone.due_date ? shortDate(milestone.due_date) : "no date"}
+          {dueSoon(milestone.due_date) && ` · ${dueSoon(milestone.due_date)}`}
+        </span>
+      </span>
+
+      <Ring total={total} done={done} percent={percent}
+            tone={closed || percent === 100 ? "done" : late ? "late" : undefined} />
+
+      <span className="mtile-foot">
+        <span>{total === 0 ? "empty" : `${openCount} open`}</span>
+        {milestone.is_inherited && <span title="Belongs to a parent group">group</span>}
+        <span>{done} done</span>
+      </span>
+
+    </button>
+  );
+}
+
+function Ring({ total, done, percent, tone }: {
+  total: number;
+  done: number;
+  percent: number;
+  tone?: "done" | "late";
+}) {
+  const R = 30;
+  const circumference = 2 * Math.PI * R;
+  const filled = (Math.min(percent, 100) / 100) * circumference;
+
+  return (
+    <span className="ring" data-tone={tone} role="img"
+          aria-label={`${done} of ${total} tasks done`}>
+      <svg width="76" height="76" viewBox="0 0 76 76">
+        <circle className="ring-track" cx="38" cy="38" r={R} strokeWidth="6" />
+        {/* Omitted entirely at zero: a round line cap paints a dot even for a
+            zero-length arc, which reads as a milestone that has started. */}
+        {filled > 0 && (
+          <circle className="ring-fill" cx="38" cy="38" r={R} strokeWidth="6"
+                  strokeDasharray={`${filled} ${circumference - filled}`} />
+        )}
+      </svg>
+      <span className="ring-label">
+        <b>{total}</b>
+        <span>{total === 1 ? "TASK" : "TASKS"}</span>
+      </span>
+    </span>
+  );
+}
+
+/** The open milestone: its tasks, who has them, and what is left. */
+function MilestoneDetail({
+  milestone, members, canEdit, currentUserId, busy,
+  onToggleTask, onReassign, onChanged, onClose,
 }: {
   milestone: Milestone;
   members: User[];
   canEdit: boolean;
   currentUserId: number;
   busy: string | null;
-  index: number;
   onToggleTask: (task: Task) => void;
   onReassign: (task: Task, assigneeId: number | null) => void;
   onChanged: () => void;
+  onClose: () => void;
 }) {
   const [addingTask, setAddingTask] = useState(false);
   const done = milestone.state === "closed";
+  const { total, done: closedCount } = milestone.progress;
+  const openCount = total - closedCount;
+
+  // Open first: what is left is the reason anybody opened this.
+  const tasks = [...milestone.tasks].sort((a, b) => {
+    if ((a.state === "closed") !== (b.state === "closed")) return a.state === "closed" ? 1 : -1;
+    return 0;
+  });
+
+  // Who is carrying this milestone, and how much of it is nobody's.
+  const unassigned = tasks.filter((t) => t.state !== "closed" && !t.assignee).length;
 
   return (
-    <div className="panel rise" style={{ animationDelay: `${index * 60}ms`, overflow: "hidden",
-                                         opacity: done ? .72 : 1 }}>
+    <div className="panel rise" style={{ overflow: "hidden" }}>
       <div className="panel-head" style={{ background: "var(--sunk)" }}>
         <div className="stack gap-1 grow">
           <div className="row gap-2 center wrap">
             <h3>{milestone.title}</h3>
-            {milestone.is_overdue && <span className="pill pill-overdue">overdue</span>}
+            {milestone.is_overdue && !done && <span className="pill pill-overdue">overdue</span>}
             {done && <span className="pill pill-done">closed</span>}
             {/* A group milestone is shared with the group's other projects, so
                 it is shown but never edited from inside one of them. */}
@@ -173,20 +289,33 @@ function MilestoneCard({
                 {dueSoon(milestone.due_date)}
               </span>
             )}
+            <span className="mono faint">
+              {openCount} open · {closedCount} done
+            </span>
+            {unassigned > 0 && (
+              <span className="mono" style={{ color: "var(--attention)" }}>
+                {unassigned} unassigned
+              </span>
+            )}
           </div>
         </div>
-        <div className="stack gap-1" style={{ minWidth: 130 }}>
-          <Meter percent={milestone.progress.percent}
-                 tone={milestone.progress.percent === 100 ? "done"
-                       : milestone.is_overdue ? "late" : undefined} />
-          <span className="mono faint" style={{ fontSize: ".72rem", textAlign: "right" }}>
-            {milestone.progress.done}/{milestone.progress.total} done
-          </span>
+        <div className="row gap-3 center">
+          <div className="stack gap-1" style={{ minWidth: 120 }}>
+            <Meter percent={milestone.progress.percent}
+                   tone={milestone.progress.percent === 100 ? "done"
+                         : milestone.is_overdue ? "late" : undefined} />
+            <span className="mono faint" style={{ fontSize: ".72rem", textAlign: "right" }}>
+              {closedCount}/{total} done
+            </span>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close">
+            ×
+          </button>
         </div>
       </div>
 
       <div className="stack">
-        {milestone.tasks.map((task) => {
+        {tasks.map((task) => {
           const isBusy = busy === `task-${task.id}`;
           const mayToggle = canEdit || task.assignee?.id === currentUserId;
           return (
@@ -210,6 +339,12 @@ function MilestoneCard({
                        className="mono" style={{ color: "var(--brand)" }}>
                       #{task.gitlab_iid}
                     </a>
+                  )}
+                  {/* Say which it is rather than calling an issue a task. */}
+                  {task.work_item_type === "issue" && (
+                    <span className="faint" title="A GitLab issue, not a task work item">
+                      issue
+                    </span>
                   )}
                   <span className="mono"
                         style={{ color: task.is_overdue ? "var(--overdue)" : "var(--ink-faint)" }}>
@@ -244,9 +379,10 @@ function MilestoneCard({
           );
         })}
 
-        {milestone.tasks.length === 0 && !addingTask && (
+        {tasks.length === 0 && !addingTask && (
           <p className="faint" style={{ padding: "16px 18px", fontSize: ".84rem" }}>
-            No tasks in this milestone yet.
+            Nothing filed under this milestone yet. Work planned in GitLab shows up
+            here after a sync — as long as it carries this milestone.
           </p>
         )}
 

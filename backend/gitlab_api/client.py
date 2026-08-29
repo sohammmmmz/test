@@ -344,19 +344,27 @@ class GitLabClient:
 
     TASK_TYPE = "task"
 
-    def list_tasks(self, project_id: int, *, updated_after=None,
-                   issue_types: list[str] | None = None) -> list[dict]:
-        """Work items this tool is responsible for.
+    # What counts as planned work when reading. Writing always makes a task;
+    # reading has to accept issues too, because a plan built in GitLab — or
+    # built here before the two were told apart — is full of them, and filtering
+    # them out reports an empty milestone for work that is visibly there.
+    #
+    # The milestone is what separates planning from noise, not the type: an
+    # issue filed with no milestone is still read by nobody here.
+    PLANNED_TYPES = ("task", "issue")
 
-        Filtered to tasks, so an issue somebody opened by hand is read by nobody
-        here and stays entirely theirs. ``issue_types`` widens that during a
-        changeover, for a project whose planning predates the split.
+    def list_tasks(self, project_id: int, *, updated_after=None,
+                   issue_types: tuple[str, ...] | list[str] | None = None) -> list[dict]:
+        """Work items filed under a milestone, whatever type they were made as.
+
+        ``issue_types`` narrows it — pass ``("task",)`` for a project that has
+        been fully converted and wants its Issues tab left strictly alone.
         """
         params: dict[str, Any] = {"scope": "all", "state": "all"}
         if updated_after is not None:
             params["updated_after"] = updated_after.isoformat()
 
-        wanted = issue_types or [self.TASK_TYPE]
+        wanted = issue_types or self.PLANNED_TYPES
         rows: list[dict] = []
         seen: set[int] = set()
         for issue_type in wanted:

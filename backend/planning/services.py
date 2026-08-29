@@ -319,6 +319,7 @@ def reconcile_project(project) -> dict:
                 "title": payload.get("title", ""),
                 "description": payload.get("description", "") or "",
                 "state": state,
+                "work_item_type": payload.get("issue_type") or "issue",
                 "assignee": users.get(assignee_payload.get("id")),
                 "due_date": parse_date(payload["due_date"]) if payload.get("due_date") else None,
                 "labels": payload.get("labels") or [],

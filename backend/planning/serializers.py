@@ -16,8 +16,8 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = ["id", "gitlab_iid", "title", "description", "state", "assignee",
                   "due_date", "labels", "web_url", "is_overdue", "milestone",
-                  "milestone_title", "project_id", "project_name", "closed_at",
-                  "created_at"]
+                  "milestone_title", "work_item_type", "project_id", "project_name",
+                  "closed_at", "created_at"]
 
 
 class MilestoneSerializer(serializers.ModelSerializer):

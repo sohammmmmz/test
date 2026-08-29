@@ -128,6 +128,9 @@ export type Task = {
   is_overdue: boolean;
   milestone: number;
   milestone_title: string;
+  // "task" or "issue" — what GitLab made it. Anything filed under a milestone
+  // counts as planned work whichever it is.
+  work_item_type: string;
   project_id: number;
   project_name: string;
   closed_at: string | null;

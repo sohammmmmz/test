@@ -89,6 +89,11 @@ class Task(models.Model):
         OPEN = "opened", "Open"
         CLOSED = "closed", "Done"
 
+    # What GitLab made it: "task" for anything created here, "issue" for work
+    # that was planned in GitLab or predates the two being told apart. Kept so
+    # the screen can say which, rather than quietly calling an issue a task.
+    work_item_type = models.CharField(max_length=32, default="task", blank=True)
+
     milestone = models.ForeignKey(
         Milestone, on_delete=models.CASCADE, related_name="tasks"
     )

@@ -135,10 +135,18 @@ A task here is a GitLab **work item of type task**, not an issue. Both live
 behind one REST endpoint — `/issues` carries every work item type, selected with
 `issue_type` — which is why the client's paths still read "issues".
 
-They are kept apart for the person using GitLab. The **Issues** tab stays theirs,
-for bugs somebody filed; planning done in this tool lands under **Tasks**, where
-it belongs. Reconciliation reads only tasks, so an issue opened by hand is read
-by nobody here and is never rewritten.
+They are kept apart for the person using GitLab: planning done in this tool
+lands under **Tasks**, where it belongs, instead of filling the Issues tab.
+
+Reading is deliberately wider than writing. Reconciliation accepts **both tasks
+and issues**, because a plan built in GitLab — or built here before the two were
+told apart — is full of issues, and filtering them out reports an empty milestone
+for work that is visibly there.
+
+What separates planning from noise is the **milestone**, not the type. An issue
+filed with no milestone is still read by nobody here and stays entirely theirs.
+Anything that did come across as an issue is labelled *issue* in the plan, rather
+than being quietly called a task.
 
 A task takes `milestone_id` directly, so Milestone → Task needs no parent link —
 just as well, since REST cannot make a task the child of an issue (it comes out
@@ -175,6 +183,16 @@ GitLab iid — so an issue somebody opened by hand is never in scope. Safe to ru
 twice.
 
 ### Milestones and tasks
+
+Milestones are squares in a grid, each with its task count inside its own
+progress ring — so "eight tasks, most of them done" is one glance rather than a
+number and then a bar to interpret. Opening one shows its tasks below: who has
+each, what is overdue, how many are unassigned.
+
+One opens at a time. A stack of expanded milestones answers "what is in
+milestone three" and nothing else — the shape of the whole plan is off the
+bottom of the screen by the second one, and comparing two task lists side by
+side is not something anybody does.
 
 Two levels. A milestone holds tasks directly, and each task carries one assignee
 — multiple assignees is a Premium feature, and a third level would mean
