@@ -177,9 +177,7 @@ def _summary_sheet(book: Workbook, report: dict, covers: str):
         ("Overdue tasks", summary["overdue_tasks"], "Open and past their due date."),
         ("Tasks closed this period", summary["tasks_closed"], "Closed inside the window."),
         ("Todos closed this period", summary["todos_closed"],
-         "Closed by an owner in the morning meeting."),
-        ("Todos awaiting closing", summary["todos_awaiting"],
-         "Marked done by the person and not yet confirmed."),
+         "Ticked off inside the window."),
         ("Morning meetings held", summary["meetings_held"], "Completed rounds."),
     ]
 
@@ -248,7 +246,7 @@ def _people_sheet(book: Workbook, report: dict, covers: str):
         ("Bandwidth", 15), ("Load", 9), ("Open tasks", 10), ("Overdue", 9),
         ("Open todos", 10), ("Carrying over", 12), ("Sitting for days", 13),
         ("Tasks closed", 11), ("Todos in period", 12), ("Todos closed", 11),
-        ("Awaiting closing", 13), ("Projects", 9), ("Working on", 44),
+        ("Projects", 9), ("Working on", 44),
     ]
     sheet, header = _sheet(book, "People", covers, columns)
     rows = [[
@@ -256,7 +254,7 @@ def _people_sheet(book: Workbook, report: dict, covers: str):
         p["bandwidth"], p["bandwidth_percent"], p["open_tasks"], p["overdue_tasks"],
         p["todos_open_today"], p["todos_carrying"], p["todos_stale"],
         p["tasks_closed_in_period"], p["todos_in_period"], p["todos_closed"],
-        p["todos_awaiting"], p["projects"], p["project_names"],
+        p["projects"], p["project_names"],
     ] for p in report["people"]]
     _write(sheet, header, rows)
     _percent(sheet, header, len(rows), 6)
@@ -295,12 +293,12 @@ def _milestones_sheet(book: Workbook, report: dict, covers: str):
 def _activity_sheet(book: Workbook, report: dict, covers: str):
     columns = [
         ("Date", 14), ("Day", 12), ("Working day", 12), ("Todos set", 11),
-        ("Closed", 9), ("Awaiting closing", 14), ("Still open", 11),
+        ("Closed", 9), ("Still open", 11),
         ("Tasks closed", 12), ("Meetings held", 12),
     ]
     sheet, header = _sheet(book, "Day by day", covers, columns)
     _write(sheet, header, [[
         a["date"], a["weekday"], "yes" if a["is_working_day"] else "no",
-        a["todos"], a["closed"], a["awaiting"], a["still_open"],
+        a["todos"], a["closed"], a["still_open"],
         a["tasks_closed"], a["meetings"],
     ] for a in report["activity"]])

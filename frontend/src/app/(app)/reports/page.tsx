@@ -297,7 +297,6 @@ export default async function ReportsPage({
                     <th>Day</th>
                     <th>Todos set</th>
                     <th>Closed</th>
-                    <th>Awaiting</th>
                     <th>Still open</th>
                     <th>Tasks closed</th>
                     <th>Round held</th>
@@ -317,10 +316,6 @@ export default async function ReportsPage({
                       <td className="mono">{row.todos}</td>
                       <td className="mono" style={{ color: row.closed ? "var(--done)" : undefined }}>
                         {row.closed || "—"}
-                      </td>
-                      <td className="mono"
-                          style={{ color: row.awaiting ? "var(--attention)" : "var(--ink-faint)" }}>
-                        {row.awaiting || "—"}
                       </td>
                       <td className="mono">{row.still_open || "—"}</td>
                       <td className="mono">{row.tasks_closed || "—"}</td>

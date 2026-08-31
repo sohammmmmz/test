@@ -21,14 +21,13 @@ import type { Task, Todo } from "@/lib/types";
  * exact failure the two stages exist to prevent.
  */
 export function TodoList({
-  todos, suggestions, date, canAdd, canTick, canClose, title, userId,
+  todos, suggestions, date, canAdd, canTick, title, userId,
 }: {
   todos: Todo[];
   suggestions: Task[];
   date: string;
   canAdd?: boolean;
   canTick?: boolean;
-  canClose?: boolean;
   title: string;
   userId?: number;
 }) {
@@ -72,32 +71,19 @@ export function TodoList({
    * the one they take by accident.
    */
   function requestToggle(todo: Todo) {
-    const reversing = canClose ? todo.status === "closed" : todo.status === "claimed";
-    if (reversing) setUndoing(todo);
+    if (todo.status === "closed") setUndoing(todo);
     else toggle(todo);
   }
 
   function toggle(todo: Todo) {
-    // An owner closes; everybody else claims. The backend enforces this either
-    // way — sending the wrong one is folded down rather than refused — but
-    // saying it plainly here keeps the button honest about what it does.
-    const closing = canClose && todo.status !== "closed";
-    const claiming = !canClose && todo.status === "open";
-    const body = canClose ? { done: closing } : { claimed: claiming };
-
-    const next: Partial<Todo> = canClose
-      ? closing
-        ? { status: "closed", is_done: true, is_claimed: false }
-        : { status: "open", is_done: false, is_claimed: false }
-      : claiming
-        ? { status: "claimed", is_claimed: true, is_done: false }
-        : { status: "open", is_claimed: false, is_done: false };
+    const closing = todo.status !== "closed";
+    const next: Partial<Todo> = closing
+      ? { status: "closed", is_done: true }
+      : { status: "open", is_done: false, closed_by_name: null };
 
     setPatched((all) => ({ ...all, [todo.id]: { ...all[todo.id], ...next } }));
 
-    const verb = canClose
-      ? closing ? "Closed" : "Reopened"
-      : claiming ? "Marked done" : "Unmarked";
+    const verb = closing ? "Ticked off" : "Reopened";
     run({
       key: `todo:${todo.id}:tick`,
       pending: `${verb} “${todo.title}”`,
@@ -105,7 +91,7 @@ export function TodoList({
       failed: `Could not update “${todo.title}”`,
       method: "PATCH",
       path: `/api/daily/todos/${todo.id}`,
-      body,
+      body: { done: closing },
     });
   }
 
@@ -133,12 +119,10 @@ export function TodoList({
       title: text,
       status: "open",
       is_done: false,
-      is_claimed: false,
       is_stale: false,
       carry_count: 0,
       source: "manual",
       task: null,
-      claimed_by_name: null,
       closed_by_name: null,
     } as unknown as Todo]);
     setDraft("");
@@ -155,19 +139,14 @@ export function TodoList({
   }
 
   const done = rows.filter((t) => t.is_done).length;
-  const waiting = rows.filter((t) => t.is_claimed).length;
 
   return (
     <div className="stack gap-4">
       {undoing && (
         <Confirm
-          title={canClose ? "Reopen this?" : "Mark this as not done?"}
-          body={
-            canClose
-              ? `“${undoing.title}” has been closed. Reopening puts it back on the list as unfinished work.`
-              : `“${undoing.title}” is marked done and waiting to be closed in the morning meeting. This takes that back.`
-          }
-          confirmLabel={canClose ? "Reopen it" : "Mark as not done"}
+          title="Reopen this?"
+          body={`“${undoing.title}” is ticked off. Reopening puts it back on the list as unfinished work.`}
+          confirmLabel="Reopen it"
           tone="attention"
           onCancel={() => setUndoing(null)}
           onConfirm={() => { toggle(undoing); setUndoing(null); }}
@@ -178,11 +157,6 @@ export function TodoList({
         <div className="panel-head">
           <h2 style={{ fontSize: "1.05rem" }}>{title}</h2>
           <span className="row gap-2 center">
-            {waiting > 0 && (
-              <span className="pill pill-attention">
-                {waiting} waiting to be closed
-              </span>
-            )}
             <span className="mono faint" style={{ fontSize: ".78rem" }}>
               {done}/{rows.length}
             </span>
@@ -191,19 +165,14 @@ export function TodoList({
 
         <div className="stack">
           {rows.map((todo) => {
-            const claimed = todo.status === "claimed";
             const closed = todo.status === "closed";
-            const label = closed
-              ? `Reopen ${todo.title}`
-              : claimed
-                ? `Undo marking ${todo.title} done`
-                : `Mark ${todo.title} done`;
+            const label = closed ? `Reopen ${todo.title}` : `Tick off ${todo.title}`;
 
             return (
               <div key={todo.id} className="todo" data-done={closed}>
-                {canTick && !(closed && !canClose) ? (
+                {canTick ? (
                   <button
-                    className={`check ${claimed ? "check-claimed" : ""}`}
+                    className="check"
                     data-done={closed}
                     onClick={() => requestToggle(todo)}
                     aria-label={label}
@@ -211,8 +180,7 @@ export function TodoList({
                     <Tick />
                   </button>
                 ) : (
-                  <span className={`check ${claimed ? "check-claimed" : ""}`}
-                        data-done={closed} aria-hidden><Tick /></span>
+                  <span className="check" data-done={closed} aria-hidden><Tick /></span>
                 )}
 
                 <Thread days={todo.carry_count} stale={todo.is_stale} />
@@ -220,13 +188,6 @@ export function TodoList({
                 <span className="grow stack gap-1">
                   <span className="todo-title">{todo.title}</span>
                   <span className="row gap-2 center wrap" style={{ fontSize: ".72rem" }}>
-                    {claimed && (
-                      <span style={{ color: "var(--attention)" }}>
-                        {todo.claimed_by_name
-                          ? `marked done by ${todo.claimed_by_name} · waiting to be closed`
-                          : "marked done · waiting to be closed"}
-                      </span>
-                    )}
                     {closed && todo.closed_by_name && (
                       <span className="faint">closed by {todo.closed_by_name}</span>
                     )}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useActivity } from "./Activity";
 import { Confirm } from "./Confirm";
+import { TaskIssues } from "./TaskIssues";
 import { Avatar, Meter, Tick } from "./ui";
 import { dueSoon, relativeDue, shortDate } from "@/lib/format";
 import type { Milestone, Task, User } from "@/lib/types";
@@ -285,6 +286,9 @@ function MilestoneDetail({
 }) {
   const { inFlight } = useActivity();
   const [addingTask, setAddingTask] = useState(false);
+  // Which task's issues are open. One at a time — the dialog is modal, and
+  // reading two sets of defects at once is not a thing anybody does.
+  const [issuesFor, setIssuesFor] = useState<Task | null>(null);
   const done = milestone.state === "closed";
   const { total, done: closedCount } = milestone.progress;
   const openCount = total - closedCount;
@@ -350,6 +354,11 @@ function MilestoneDetail({
         </div>
       </div>
 
+      {issuesFor && (
+        <TaskIssues task={issuesFor} members={members}
+                    onClose={() => setIssuesFor(null)} />
+      )}
+
       <div className="stack">
         {tasks.map((task) => {
           // Settling, not blocking. The row already shows the new state; this
@@ -414,6 +423,23 @@ function MilestoneDetail({
               ) : (
                 <span className="pill">unassigned</span>
               )}
+
+              {/* On every task, for everyone who can see the project. The
+                  person who finds a defect is almost never the person who
+                  planned the work, and a tool that makes them ask somebody
+                  else to file it is a tool where defects do not get filed. */}
+              <button
+                className="issue-flag"
+                data-any={task.open_issue_count > 0}
+                onClick={() => setIssuesFor(task)}
+                title={task.open_issue_count > 0
+                  ? `${task.open_issue_count} open ${task.open_issue_count === 1 ? "issue" : "issues"}`
+                  : "Log an issue against this task"}
+                aria-label={`Issues on ${task.title}`}
+              >
+                <Flag />
+                {task.open_issue_count > 0 && <span>{task.open_issue_count}</span>}
+              </button>
             </div>
           );
         })}
@@ -579,5 +605,15 @@ function TaskForm({ milestoneId, members, onDone, onCancel }: {
         <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
       </div>
     </form>
+  );
+}
+
+/** A small pennant. Reads as "something is flagged here", not as a warning. */
+function Flag() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M4 2v12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M4 3h7.2l-1.4 2.4L11.2 8H4z" fill="currentColor" opacity=".85" />
+    </svg>
   );
 }

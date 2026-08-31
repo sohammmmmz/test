@@ -87,7 +87,6 @@ export function MorningMeeting({ board, teams, activeTeam }: {
     || inFlight.has(`meeting:${meeting.id}:complete`);
 
   const totalPending = rows.reduce((n, r) => n + r.pending.length, 0);
-  const totalClaimed = rows.reduce((n, r) => n + r.claimed.length, 0);
   const totalStale = rows.reduce((n, r) => n + r.stale_count, 0);
   const totalOverdue = rows.reduce((n, r) => n + r.overdue_tasks.length, 0);
   const reviewed = rows.filter((r) => r.note?.is_reviewed).length;
@@ -126,7 +125,7 @@ export function MorningMeeting({ board, teams, activeTeam }: {
             <p className="soft" style={{ fontSize: ".93rem", maxWidth: "54ch" }}>
               {finished
                 ? `${reviewed} of ${rows.length} ${plural(rows.length, "person", "people")} reviewed${meeting.duration_minutes != null ? ` in ${meeting.duration_minutes} minutes` : ""}.`
-                : `${totalPending} ${plural(totalPending, "thing")} carried in, ${totalOverdue} overdue ${plural(totalOverdue, "task")}${totalClaimed > 0 ? `, ${totalClaimed} waiting on you to close` : ""}${totalStale > 0 ? `, ${totalStale} that ${plural(totalStale, "has", "have")} been sitting for days` : ""}.`}
+                : `${totalPending} ${plural(totalPending, "thing")} carried in, ${totalOverdue} overdue ${plural(totalOverdue, "task")}${totalStale > 0 ? `, ${totalStale} that ${plural(totalStale, "has", "have")} been sitting for days` : ""}.`}
             </p>
           </div>
 
@@ -279,9 +278,7 @@ function FullScreenRound({
           <span className="eyebrow" style={{ padding: "2px 11px 10px", display: "block" }}>
             The round
           </span>
-          {rows.map((r, i) => {
-            const waiting = r.claimed.length;
-            return (
+          {rows.map((r, i) => (
               <button
                 key={r.user.id}
                 className="seat-name pop"
@@ -300,15 +297,13 @@ function FullScreenRound({
                   </span>
                   <span className="faint" style={{ fontSize: ".7rem" }}>
                     {r.pending.length} open
-                    {waiting > 0 && ` · ${waiting} to close`}
                   </span>
                 </span>
                 {r.note?.is_reviewed && (
                   <span className="dot" style={{ background: "var(--done)" }} />
                 )}
               </button>
-            );
-          })}
+          ))}
         </div>
 
         <div className="fs-col fs-stage">
@@ -419,7 +414,7 @@ function LastMeetingPanel({ row }: { row: MeetingRow }) {
             <span className="dot" style={{
               marginTop: 7,
               background: todo.status === "closed" ? "var(--done)"
-                : todo.status === "claimed" ? "var(--attention)" : "var(--line-firm)",
+                : "var(--line-firm)",
             }} />
             <span style={{
               color: todo.status === "closed" ? "var(--ink-faint)" : "var(--ink-soft)",
@@ -467,25 +462,22 @@ function TurnCard({ row, date, meetingId, onChanged }: {
   /**
    * Where each todo has been moved to but the server has not confirmed it.
    *
-   * The three lists on this screen — waiting on you, still open, closed today —
-   * are one list of todos bucketed by status, so an optimistic move is just an
-   * overridden status and a re-bucket. Closing all of somebody's claimed work is
-   * one click and N requests; this is what lets all N rows move at once instead
-   * of trickling in as each one lands.
+   * The two lists on this screen — still open, closed today — are one list of
+   * todos bucketed by status, so an optimistic move is just an overridden
+   * status and a re-bucket. Closing all of somebody's open work is one click
+   * and N requests; this is what lets all N rows move at once instead of
+   * trickling in as each one lands.
    */
   const [moved, setMoved] = useState<Record<number, Todo["status"]>>({});
   const [extra, setExtra] = useState<Todo[]>([]);
   useEffect(() => { setMoved({}); setExtra([]); }, [row]);
 
   const buckets = useMemo(() => {
-    const all = [...row.claimed, ...row.pending, ...row.done, ...extra].map((todo) =>
+    const all = [...row.pending, ...row.done, ...extra].map((todo) =>
       moved[todo.id]
-        ? { ...todo, status: moved[todo.id],
-            is_done: moved[todo.id] === "closed",
-            is_claimed: moved[todo.id] === "claimed" }
+        ? { ...todo, status: moved[todo.id], is_done: moved[todo.id] === "closed" }
         : todo);
     return {
-      claimed: all.filter((t) => t.status === "claimed"),
       pending: all.filter((t) => t.status === "open"),
       done: all.filter((t) => t.status === "closed"),
     };
@@ -509,16 +501,12 @@ function TurnCard({ row, date, meetingId, onChanged }: {
     move(todo, "closed", { done: true },
          `Closed “${todo.title}”`, `Could not close “${todo.title}”`);
 
-  const reject = (todo: Todo) =>
-    move(todo, "open", { claimed: false },
-         `Put “${todo.title}” back on the list`, `Could not reopen “${todo.title}”`);
-
   const reopen = (todo: Todo) =>
     move(todo, "open", { done: false },
          `Reopened “${todo.title}”`, `Could not reopen “${todo.title}”`);
 
-  function closeAllClaimed() {
-    const batch = buckets.claimed;
+  function closeAllOpen() {
+    const batch = buckets.pending;
     if (batch.length === 0) return;
     // Every one is its own request, and every one can fail on its own — so each
     // gets its own notification naming the line rather than one "some of that
@@ -534,12 +522,10 @@ function TurnCard({ row, date, meetingId, onChanged }: {
       title: text,
       status: "open",
       is_done: false,
-      is_claimed: false,
       is_stale: false,
       carry_count: 0,
       source: "meeting",
       task: null,
-      claimed_by_name: null,
       closed_by_name: null,
     } as unknown as Todo]);
     setDraft("");
@@ -609,40 +595,23 @@ function TurnCard({ row, date, meetingId, onChanged }: {
         </div>
       )}
 
-      {/* Waiting on the owner. First, because it is the only thing on this
-          screen that cannot be settled anywhere else. */}
-      {buckets.claimed.length > 0 && (
-        <section className="panel" style={{ overflow: "hidden",
-                                            borderColor: "var(--attention)" }}>
-          <div className="panel-head" style={{ borderColor: "var(--line)" }}>
-            <div className="stack">
-              <h2 style={{ fontSize: "1rem" }}>
-                {buckets.claimed.length} marked done, waiting on you
-              </h2>
-              <span className="faint" style={{ fontSize: ".77rem" }}>
-                {row.user.display_name} ticked these off. Closing them is yours.
-              </span>
-            </div>
-            <button className="btn btn-primary btn-sm" onClick={closeAllClaimed}>
-              Close all
-            </button>
-          </div>
-          <div className="stack">
-            {buckets.claimed.map((todo) => (
-              <MeetingTodo key={todo.id} todo={todo}
-                           busy={inFlight.has(`todo:${todo.id}:tick`)}
-                           onClose={() => close(todo)}
-                           onReject={() => reject(todo)} />
-            ))}
-          </div>
-        </section>
-      )}
-
       <section className="panel" style={{ overflow: "hidden" }}>
         <div className="panel-head">
-          <h2 style={{ fontSize: "1rem" }}>Still open</h2>
-          <span className="mono faint" style={{ fontSize: ".78rem" }}>
-            {buckets.pending.length}
+          <div className="stack">
+            <h2 style={{ fontSize: "1rem" }}>Still open</h2>
+            {buckets.pending.length > 0 && (
+              <span className="faint" style={{ fontSize: ".77rem" }}>
+                Anything settled in the round can be ticked here.
+              </span>
+            )}
+          </div>
+          <span className="row gap-2 center">
+            <span className="mono faint" style={{ fontSize: ".78rem" }}>
+              {buckets.pending.length}
+            </span>
+            {buckets.pending.length > 1 && (
+              <button className="btn btn-sm" onClick={closeAllOpen}>Tick all off</button>
+            )}
           </span>
         </div>
         <div className="stack">
@@ -741,13 +710,12 @@ function MeetingTodo({ todo, busy, onClose, onReject, onReopen }: {
   onReject?: () => void;
   onReopen?: () => void;
 }) {
-  const claimed = todo.status === "claimed";
   const closed = todo.status === "closed";
 
   return (
     <div className="todo" data-done={closed}>
       <button
-        className={`check ${claimed ? "check-claimed" : ""}`}
+        className="check"
         data-done={closed}
         disabled={busy || (!onClose && !onReopen)}
         onClick={closed ? onReopen : onClose}
@@ -761,11 +729,6 @@ function MeetingTodo({ todo, busy, onClose, onReject, onReopen }: {
       <span className="grow stack gap-1">
         <span className="todo-title">{todo.title}</span>
         <span className="row gap-2 center wrap" style={{ fontSize: ".72rem" }}>
-          {claimed && todo.claimed_by_name && (
-            <span style={{ color: "var(--attention)" }}>
-              marked done by {todo.claimed_by_name}
-            </span>
-          )}
           {closed && todo.closed_by_name && (
             <span className="faint">closed by {todo.closed_by_name}</span>
           )}
@@ -783,12 +746,6 @@ function MeetingTodo({ todo, busy, onClose, onReject, onReopen }: {
         </span>
       </span>
 
-      {claimed && onReject && (
-        <button className="btn btn-ghost btn-sm" disabled={busy} onClick={onReject}
-                title="Send it back — it is not finished">
-          Not yet
-        </button>
-      )}
     </div>
   );
 }
@@ -838,9 +795,6 @@ function BoardCard({ row }: { row: MeetingRow }) {
             {row.user.job_title || row.user.department}
           </span>
         </span>
-        {row.claimed.length > 0 && (
-          <span className="pill pill-attention">{row.claimed.length} to close</span>
-        )}
       </div>
 
       <div className="row gap-4" style={{ padding: "12px 16px", fontSize: ".76rem" }}>
@@ -852,8 +806,8 @@ function BoardCard({ row }: { row: MeetingRow }) {
         </span>
         <span className="stack">
           <span className="mono" style={{ fontSize: "1rem", fontWeight: 600,
-                        color: row.claimed.length ? "var(--attention)" : undefined }}>
-            {row.claimed.length}
+                        color: row.pending.length ? "var(--attention)" : undefined }}>
+            {row.pending.length}
           </span>
           <span className="faint">to close</span>
         </span>
@@ -910,7 +864,6 @@ function Summary({ rows, onReopen, busy }: {
   const blocked = rows.filter((r) => r.note?.blockers);
   const stillOpen = rows.reduce((n, r) => n + r.pending.length, 0);
   const closed = rows.reduce((n, r) => n + r.done.length, 0);
-  const waiting = rows.reduce((n, r) => n + r.claimed.length, 0);
 
   return (
     <div className="stack gap-4">
@@ -923,11 +876,6 @@ function Summary({ rows, onReopen, busy }: {
         <div className="panel stack gap-1" style={{ padding: 16 }}>
           <span className="mono" style={{ fontSize: "1.6rem", fontWeight: 600 }}>{stillOpen}</span>
           <span className="faint" style={{ fontSize: ".77rem" }}>carried into today</span>
-        </div>
-        <div className="panel stack gap-1" style={{ padding: 16 }}>
-          <span className="mono" style={{ fontSize: "1.6rem", fontWeight: 600,
-                        color: waiting ? "var(--attention)" : undefined }}>{waiting}</span>
-          <span className="faint" style={{ fontSize: ".77rem" }}>still waiting on you</span>
         </div>
         <div className="panel stack gap-1" style={{ padding: 16 }}>
           <span className="mono" style={{ fontSize: "1.6rem", fontWeight: 600,
@@ -963,11 +911,6 @@ function Summary({ rows, onReopen, busy }: {
                 ) : (
                   <span className="faint" style={{ fontSize: ".83rem" }}>
                     Nothing open on their list.
-                  </span>
-                )}
-                {row.claimed.length > 0 && (
-                  <span style={{ fontSize: ".81rem", color: "var(--attention)" }}>
-                    {row.claimed.length} marked done and not closed
                   </span>
                 )}
                 {row.note?.blockers && (

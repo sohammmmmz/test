@@ -20,9 +20,7 @@ export default async function MyDayPage() {
     throw err;
   }
 
-  // "Left" means nobody has said it is finished. A line the person has ticked
-  // and their lead has not yet closed is not still on their plate.
-  const left = day.counts.total - day.counts.done - day.counts.claimed;
+  const left = day.counts.total - day.counts.done;
   const headline =
     day.counts.total === 0
       ? "Nothing on the list yet."
@@ -52,7 +50,6 @@ export default async function MyDayPage() {
           date={day.date}
           canAdd
           canTick
-          canClose={user.is_owner}
           title="Today"
         />
       </div>

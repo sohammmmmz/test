@@ -63,10 +63,6 @@ def _carry_rows(user, day: date, unfinished) -> list[Todo]:
         # A todo whose task was closed elsewhere is finished, not carried.
         if todo.task and todo.task.state == Task.State.CLOSED:
             continue
-        # A line the person already said was finished carries the claim with
-        # it, and does not age: it is sitting on the owner's review, not on
-        # them, so counting another day against it would blame the wrong end.
-        claimed = todo.claimed_at is not None
         rows.append(
             Todo(
                 user=user,
@@ -77,9 +73,7 @@ def _carry_rows(user, day: date, unfinished) -> list[Todo]:
                 source=TodoSource.CARRIED,
                 carried_from=todo,
                 first_added_on=todo.first_added_on or todo.date,
-                carry_count=todo.carry_count if claimed else todo.carry_count + 1,
-                claimed_at=todo.claimed_at,
-                claimed_by=todo.claimed_by,
+                carry_count=todo.carry_count + 1,
                 created_by=todo.created_by,
             )
         )
@@ -226,7 +220,6 @@ def day_view(user, day: date) -> dict:
         "counts": {
             "total": len(todos),
             "done": sum(1 for t in todos if t.is_done),
-            "claimed": sum(1 for t in todos if t.is_claimed),
             "carried": sum(1 for t in todos if t.carry_count > 0),
             "stale": sum(1 for t in todos if t.is_stale),
         },
@@ -234,7 +227,7 @@ def day_view(user, day: date) -> dict:
 
 
 def pending_for(user, day: date) -> list[Todo]:
-    """What is on the list and nobody has even claimed to have finished."""
+    """What is still open on this person's list."""
     return [t for t in ensure_day(user, day) if t.status == "open"]
 
 
@@ -324,13 +317,11 @@ def meeting_board(team, day: date, owner) -> dict:
     for user in people:
         todos = days[user.id]
         pending = [t for t in todos if t.status == "open"]
-        claimed = [t for t in todos if t.is_claimed]
         closed = [t for t in todos if t.is_done]
         rows.append({
             "user": user,
             "note": notes.get(user.id),
             "pending": pending,
-            "claimed": claimed,
             "done": closed,
             "suggestions": suggestions_for(user, day),
             "stale_count": sum(1 for t in pending if t.is_stale),

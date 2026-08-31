@@ -133,6 +133,40 @@ export type Task = {
   work_item_type: string;
   project_id: number;
   project_name: string;
+  // How many issues are open against this task. A count, not the issues — the
+  // list is fetched only when somebody opens the task.
+  open_issue_count: number;
+  closed_at: string | null;
+  created_at: string;
+};
+
+/**
+ * Something wrong, raised against a task.
+ *
+ * `is_in_gitlab` is false when the task it belongs to is local — no repository,
+ * or a GitLab write that never landed. Everything else about it is the same.
+ */
+export type Issue = {
+  id: number;
+  task: number;
+  task_title: string;
+  task_gitlab_iid: number | null;
+  title: string;
+  description: string;
+  severity: "low" | "medium" | "high" | "critical";
+  severity_display: string;
+  state: "opened" | "closed";
+  reported_by: User | null;
+  assignee: User | null;
+  gitlab_iid: number | null;
+  web_url: string;
+  is_linked: boolean;
+  is_in_gitlab: boolean;
+  is_open: boolean;
+  project_id: number;
+  project_name: string;
+  milestone_id: number;
+  milestone_title: string;
   closed_at: string | null;
   created_at: string;
 };
@@ -167,15 +201,11 @@ export type Todo = {
   notes: string;
   task: Task | null;
   source: "carried" | "task" | "meeting" | "manual";
-  // Two stages, not one flag. "claimed" is the person saying it is finished;
-  // "closed" is the owner confirming it in the morning meeting.
-  status: "open" | "claimed" | "closed";
+  // One stage. Ticking means finished, whoever does it.
+  status: "open" | "closed";
   is_done: boolean;
   done_at: string | null;
   closed_by_name: string | null;
-  is_claimed: boolean;
-  claimed_at: string | null;
-  claimed_by_name: string | null;
   is_stale: boolean;
   age_days: number;
   carry_count: number;
@@ -186,7 +216,7 @@ export type Todo = {
 export type DayView = {
   date: string;
   is_working_day?: boolean;
-  counts: { total: number; done: number; claimed: number; carried: number; stale: number };
+  counts: { total: number; done: number; carried: number; stale: number };
   todos: Todo[];
   suggestions: Task[];
   open_tasks: Task[];
@@ -246,7 +276,6 @@ export type MeetingRow = {
   is_owner: boolean;
   note: MeetingNote | null;
   pending: Todo[];
-  claimed: Todo[];
   done: Todo[];
   suggestions: Task[];
   overdue_tasks: Task[];
@@ -266,7 +295,6 @@ export type WorkloadRow = {
   overdue_tasks: number;
   todos_total: number;
   todos_pending: number;
-  todos_awaiting: number;
   todos_stale: number;
   project_count: number;
 };
@@ -301,11 +329,9 @@ export type Dashboard = {
 export type Alerts = {
   date: string;
   pending_count: number;
-  awaiting_count: number;
   done_count: number;
   stale: Todo[];
   pending: Todo[];
-  awaiting: Todo[];
   overdue_tasks: Task[];
 };
 
@@ -366,7 +392,6 @@ export type ReportSummary = {
   overdue_tasks: number;
   tasks_closed: number;
   todos_closed: number;
-  todos_awaiting: number;
   meetings_held: number;
   capacity_basis: number;
 };
@@ -412,7 +437,6 @@ export type ReportPerson = {
   todos_open_today: number;
   todos_in_period: number;
   todos_closed: number;
-  todos_awaiting: number;
   todos_carrying: number;
   todos_stale: number;
   load: number;
@@ -452,7 +476,6 @@ export type ReportActivity = {
   is_working_day: boolean;
   todos: number;
   closed: number;
-  awaiting: number;
   still_open: number;
   tasks_closed: number;
   meetings: number;

@@ -488,15 +488,65 @@ would be a way to make somebody's session call somewhere else.
 
 ## Ticking is one click; unticking asks
 
-Reversing a tick opens a confirmation, and taking one does not. They are the
-same button in the same place, and on a list of finished lines a stray click
-otherwise silently reopens work the morning meeting has already been told about.
-Putting a dialog in front of only the reversal costs nothing on the action
-people take twenty times a day and catches the one they take by accident.
+Ticking means finished, whoever does it. There was a two-stage version — a
+member's tick only *claimed* a line and an owner closed it in the morning
+meeting — and it is gone. It made ticking your own work feel like filing a
+request, and reopening a closed line cleared `done_at` but left `claimed_at`
+behind, so the line came back reading "marked done by … · waiting to be closed"
+instead of open. `daily/migrations/0003` drops the columns and closes anything
+that was mid-flight, crediting whoever ticked it.
 
-It applies in all three places a tick can be reversed: a member unmarking their
-own todo, an owner reopening a closed one, and reopening a task in the plan —
-where it also reopens the work item in GitLab, which the dialog says.
+Reversing a tick opens a confirmation; taking one does not. They are the same
+button in the same place, and on a list of finished lines a stray click
+otherwise silently reopens work the morning meeting has already been told about.
+A dialog in front of only the reversal costs nothing on the action people take
+twenty times a day and catches the one they take by accident. It applies
+wherever a tick can be reversed: a todo on My day, a line in the round, a task
+in the plan, and a resolved issue — the last two say that they reopen the item
+in GitLab too.
+
+## Issues, raised against a task
+
+A task is work somebody planned. An issue is a problem found while doing it.
+They are deliberately different lists: if every defect became a task, a
+milestone's progress would go backwards every time somebody found a bug, which
+is precisely when you least want the plan to start lying.
+
+Every task carries a flag — faint until something is open against it, then
+filled with a count. Anyone who can see the project can log one, which is the
+point: the person who finds a defect is almost never the person who planned the
+work, and a tool that makes them ask someone else to file it is a tool where
+defects do not get filed. Resolving is narrower — the owner, the assignee, or
+whoever raised it.
+
+**Where it is filed depends on the task.** A task that exists in GitLab gets a
+real GitLab issue (`issue_type=issue`, not `task`). A task that only exists here
+— a project with no repository, or a GitLab write that never landed — gets an
+issue held in this database. Same row, same screen; `is_in_gitlab` is the only
+difference anybody sees.
+
+Three things about the GitLab side, all of them decided by what a **self-managed
+Free** instance can actually do:
+
+- **`assignee_id`, singular.** `assignee_ids` is Premium and up.
+- **The cross-reference is the real link.** The issue description ends with
+  `Raised against #<task_iid>`. A bare `#iid` has produced a cross-reference on
+  every tier and every version for as long as GitLab has existed, so the two are
+  findable from each other whatever the server is.
+- **The formal link is an upgrade, not a dependency.** `POST
+  /issues/:iid/links` with `link_type=relates_to` is attempted afterwards and
+  allowed to fail — related issues are Free on current GitLab but were not
+  always, and `blocks`/`is_blocked_by` are still Premium, so `relates_to` is the
+  only type ever asked for. `Issue.is_linked` records whether it landed.
+
+## What a member sees
+
+Members get **My day** and **Projects**. On a project they can read the plan,
+its milestones, the tasks under each, and the issues raised across it, and they
+can log and resolve issues. They cannot change the plan: no milestone or task
+creation, no phase change, no membership or document controls, no delete. That
+is the same `canEdit={user.is_owner}` the project screens already used — the
+only change was giving them the tab.
 
 ## Layout
 

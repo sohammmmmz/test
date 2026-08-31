@@ -16,7 +16,14 @@ const OWNER_NAV = [
   { href: "/my-day", label: "My day", hint: "Your own list" },
 ];
 
-const MEMBER_NAV = [{ href: "/my-day", label: "My day", hint: "Today's list" }];
+// A member sees their own day and the projects they are actually on. The
+// project screens already render read-only for anybody who is not the owner —
+// the plan, its milestones and the issues raised against each task, with no
+// controls that would let them change the plan.
+const MEMBER_NAV = [
+  { href: "/my-day", label: "My day", hint: "Today's list" },
+  { href: "/projects", label: "Projects", hint: "Your plans and issues" },
+];
 
 export function Rail({ user }: { user: User }) {
   const pathname = usePathname();

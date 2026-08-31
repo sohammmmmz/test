@@ -1540,3 +1540,70 @@ table.data tbody tr:hover { background: var(--sunk); }
   .toast, .tray-panel { animation: none; }
   .toast-dot { animation: none; opacity: .6; }
 }
+
+/* ==========================================================================
+   Issues raised against a task
+   --------------------------------------------------------------------------
+   Quiet until there is something to say. The flag on a task with nothing
+   against it is a faint outline that only firms up on hover — it is an
+   affordance, not an alarm — and it fills in with a count the moment anything
+   is open. A board where every row shouts is a board nobody reads.
+   ========================================================================== */
+
+.issue-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 3px 7px;
+  min-height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: .7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity .12s ease, color .12s ease, border-color .12s ease,
+              background .12s ease;
+}
+.issue-flag:hover,
+.issue-flag:focus-visible { opacity: 1; color: var(--ink); border-color: var(--line-firm); }
+
+.issue-flag[data-any="true"] {
+  opacity: 1;
+  color: var(--attention);
+  border-color: color-mix(in srgb, var(--attention) 40%, var(--line));
+  background: var(--attention-wash);
+}
+
+.issue-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  /* The severity lives in the left edge so a list of them scans down the
+     margin rather than through four differently coloured pills. */
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.issue-row[data-severity="low"]      { border-left-color: var(--line-firm); }
+.issue-row[data-severity="medium"]   { border-left-color: var(--brand); }
+.issue-row[data-severity="high"]     { border-left-color: var(--attention); }
+.issue-row[data-severity="critical"] { border-left-color: var(--overdue); }
+.issue-row[data-resolved="true"] { opacity: .6; }
+.issue-row[data-resolved="true"] .todo-title,
+.issue-row[data-resolved="true"] > span > span > span:first-child {
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-faint);
+}
+
+.pill[data-severity="low"]      { color: var(--ink-faint); }
+.pill[data-severity="medium"]   { color: var(--brand); background: var(--brand-wash); }
+.pill[data-severity="high"]     { color: var(--attention); background: var(--attention-wash); }
+.pill[data-severity="critical"] { color: var(--overdue); background: var(--overdue-wash); }

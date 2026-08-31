@@ -136,3 +136,85 @@ class Task(models.Model):
             and self.state == self.State.OPEN
             and self.due_date < timezone.localdate()
         )
+
+
+class Issue(models.Model):
+    """Something wrong, raised against a task.
+
+    A task is work somebody planned; an issue is a problem found while doing it.
+    Keeping them apart matters because the plan should not silently grow every
+    time a bug is found — the milestone's progress is about the work, and a
+    defect logged against it is a different question.
+
+    **Where it lives depends on the task.** If the task exists in GitLab, the
+    issue is filed there too, as a real GitLab issue (``issue_type=issue``, not
+    ``task``), so the people working in GitLab see it without being told. If the
+    task is local — no repository, or a GitLab write that never landed — the
+    issue is held here alone. Either way it is the same row and the same screen;
+    ``is_in_gitlab`` is the only difference anybody sees.
+    """
+
+    class State(models.TextChoices):
+        OPEN = "opened", "Open"
+        CLOSED = "closed", "Resolved"
+
+    class Severity(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+        CRITICAL = "critical", "Critical"
+
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="issues")
+
+    title = models.CharField(max_length=512)
+    description = models.TextField(blank=True)
+    severity = models.CharField(
+        max_length=16, choices=Severity.choices, default=Severity.MEDIUM
+    )
+    state = models.CharField(max_length=16, choices=State.choices, default=State.OPEN)
+
+    reported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="reported_issues",
+    )
+    assignee = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="assigned_issues",
+    )
+
+    # Blank on an issue this app holds alone.
+    gitlab_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    gitlab_iid = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    web_url = models.URLField(blank=True)
+
+    # Whether GitLab's own "related issues" link was accepted. False is not a
+    # failure worth showing: the issue description carries a #reference to the
+    # task either way, which is what makes them findable from each other on
+    # every tier and every version.
+    is_linked = models.BooleanField(default=False)
+
+    closed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["state", "-created_at"]
+        indexes = [
+            models.Index(fields=["task", "state"]),
+            models.Index(fields=["assignee", "state"]),
+        ]
+
+    def __str__(self):
+        return self.title
+
+    @property
+    def is_in_gitlab(self) -> bool:
+        return self.gitlab_iid is not None
+
+    @property
+    def is_open(self) -> bool:
+        return self.state == self.State.OPEN
+
+    @property
+    def project_id(self) -> int:
+        return self.task.milestone.project_id

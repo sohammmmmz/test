@@ -36,16 +36,19 @@ def _project_id_of(instance) -> int | None:
     and skipped otherwise. Skipping is safe: the bare ``PLAN`` scope is bumped
     either way, and every per-project plan key is versioned against that too.
     """
-    project_id = getattr(instance, "project_id", None)
-    if project_id is not None:
-        return project_id
+    # `in instance.__dict__` rather than getattr: `Issue.project_id` is a
+    # *property* that walks task → milestone → project, so asking for it here
+    # would be two queries per row saved, which during a reconcile is hundreds.
+    # A real concrete column is always in the instance dict.
+    if "project_id" in instance.__dict__:
+        return instance.__dict__["project_id"]
     cached = instance._state.fields_cache.get("milestone")
     return getattr(cached, "project_id", None)
 
 
 def _register():
     from daily.models import Meeting, MeetingNote, Todo
-    from planning.models import Milestone, Task
+    from planning.models import Issue, Milestone, Task
     from projects.models import Document, GitLabRepo, Project, ProjectMember
     from teams.models import Team, TeamInvite, TeamMembership
 
@@ -63,6 +66,7 @@ def _register():
 
     @receiver([post_save, post_delete], sender=Milestone, dispatch_uid="inv-milestone")
     @receiver([post_save, post_delete], sender=Task, dispatch_uid="inv-task")
+    @receiver([post_save, post_delete], sender=Issue, dispatch_uid="inv-issue")
     def _plan_changed(sender, instance, **kwargs):
         project_id = _project_id_of(instance)
         # The per-project scope is what keeps one project's sync from clearing

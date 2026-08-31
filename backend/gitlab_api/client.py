@@ -404,6 +404,73 @@ class GitLabClient:
         """Turn an existing issue into a task, leaving everything else alone."""
         return self.update_task(project_id, task_iid, issue_type=self.TASK_TYPE)
 
+    # -- issues raised against a task ------------------------------------
+
+    ISSUE_TYPE = "issue"
+
+    def create_issue(self, project_id: int, *, title: str, description: str = "",
+                     milestone_id=None, assignee_id=None, due_date=None,
+                     labels=None, confidential: bool = False) -> dict:
+        """File a plain issue.
+
+        Same endpoint as ``create_task`` and deliberately a different method:
+        the two mean different things here — a task is planned work, an issue is
+        something wrong with it — and sharing one function with a type flag is
+        how they end up being told apart by a boolean at the call site.
+        """
+        body: dict[str, Any] = {
+            "title": title,
+            "description": description,
+            "issue_type": self.ISSUE_TYPE,
+        }
+        if milestone_id:
+            body["milestone_id"] = milestone_id
+        # assignee_id, singular. `assignee_ids` is Premium and up, and this has
+        # to work on a Free self-managed instance.
+        if assignee_id:
+            body["assignee_id"] = assignee_id
+        if due_date:
+            body["due_date"] = _date(due_date)
+        if labels:
+            body["labels"] = ",".join(labels)
+        if confidential:
+            body["confidential"] = True
+        return self.request("POST", f"/projects/{project_id}/issues", json=body)
+
+    def update_issue(self, project_id: int, issue_iid: int, **fields) -> dict:
+        return self.update_task(project_id, issue_iid, **fields)
+
+    def set_issue_state(self, project_id: int, issue_iid: int, *, closed: bool) -> dict:
+        """Close or reopen. ``state_event``, not ``state`` — GitLab takes a verb."""
+        return self.update_task(
+            project_id, issue_iid, state_event="close" if closed else "reopen"
+        )
+
+    def link_issues(self, project_id: int, issue_iid: int, *,
+                    target_project_id: int, target_iid: int) -> dict:
+        """Relate one issue to another.
+
+        Only ``relates_to``. ``blocks`` and ``is_blocked_by`` are Premium and
+        up, and a request for one on a Free instance fails the whole call — so
+        the one link type that exists everywhere is the only one asked for.
+
+        The caller is expected to tolerate this failing. Related issues are
+        Free on current GitLab but were not always, the endpoint may not exist
+        on an older self-managed box, and both ends must be visible to the
+        token. The cross-reference written into the issue description is what
+        actually guarantees the two are findable from each other; this is the
+        upgrade when the server supports it.
+        """
+        return self.request(
+            "POST",
+            f"/projects/{project_id}/issues/{issue_iid}/links",
+            json={
+                "target_project_id": target_project_id,
+                "target_issue_iid": target_iid,
+                "link_type": "relates_to",
+            },
+        )
+
 
 def _date(value) -> str:
     """GitLab date fields want YYYY-MM-DD."""

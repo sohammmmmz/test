@@ -182,28 +182,21 @@ def create_todo(request):
     return Response(TodoSerializer(todo).data, status=status.HTTP_201_CREATED)
 
 
-def _may_close(actor, subject) -> bool:
-    """Who may close a line for good.
-
-    Only an owner, and only over their own people. A member ticking their own
-    todo is making a claim, not a finding — the finding happens in the morning
-    meeting, which is the point of holding one.
-    """
-    return actor.is_owner and _may_see(actor, subject)
-
-
 @api_view(["PATCH", "DELETE"])
 def todo_detail(request, todo_id: int):
     """Tick a todo off, edit it, or remove it.
 
-    Ticking has two meanings depending on who is doing it, so it has two fields.
-    ``claimed`` is the person saying they have finished; ``done`` is the owner
-    closing it in the round. A member sending ``done`` is taken to mean
-    ``claimed`` — their tick cannot close anything, and refusing it outright
-    would leave them no way to say the work is finished at all.
+    Ticking means one thing now, whoever does it: finished. There was a
+    two-stage version — a member's tick only "claimed" the line and an owner
+    closed it in the round — and it was removed. It made ticking your own work
+    feel like filing a request, and reopening something left the claim behind so
+    the line came back as "marked done, waiting to be closed" rather than open.
+
+    ``claimed`` is still accepted on the way in and treated as ``done``, so an
+    older tab that has not reloaded does not start silently failing.
     """
     todo = get_object_or_404(
-        Todo.objects.select_related("user", "task", "claimed_by", "closed_by"), pk=todo_id
+        Todo.objects.select_related("user", "task", "closed_by"), pk=todo_id
     )
     if not _may_see(request.user, todo.user):
         return Response({"detail": "Not your todo."}, status=status.HTTP_403_FORBIDDEN)
@@ -212,36 +205,18 @@ def todo_detail(request, todo_id: int):
         todo.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    may_close = _may_close(request.user, todo.user)
-
     # A plain dict: request.data is a QueryDict for form posts, and immutable.
     changes = dict(request.data)
-
-    if "done" in changes and not may_close:
-        # Fold the tick down into a claim rather than rejecting it.
-        changes["claimed"] = changes.pop("done")
-
-    if "claimed" in changes:
-        if changes["claimed"]:
-            todo.claimed_at = todo.claimed_at or timezone.now()
-            todo.claimed_by = todo.claimed_by or request.user
-        else:
-            todo.claimed_at = None
-            todo.claimed_by = None
-            # Un-saying "this is finished" un-says the closing built on it.
-            if not may_close:
-                todo.done_at = None
-                todo.closed_by = None
+    if "claimed" in changes and "done" not in changes:
+        changes["done"] = changes.pop("claimed")
 
     if "done" in changes:
         if changes["done"]:
-            todo.done_at = timezone.now()
-            todo.closed_by = request.user
-            # Closing something nobody claimed still records who said so.
-            if todo.claimed_at is None:
-                todo.claimed_at = todo.done_at
-                todo.claimed_by = request.user
+            todo.done_at = todo.done_at or timezone.now()
+            todo.closed_by = todo.closed_by or request.user
         else:
+            # Reopening clears everything the closing set. Leaving any of it
+            # behind is what produced the phantom "waiting to be closed".
             todo.done_at = None
             todo.closed_by = None
 
@@ -270,7 +245,6 @@ def my_alerts(request):
     day = timezone.localdate()
     todos = ensure_day(request.user, day)
     pending = [t for t in todos if t.status == "open"]
-    awaiting = [t for t in todos if t.is_claimed]
     stale = [t for t in pending if t.is_stale]
 
     overdue_tasks = list(
@@ -282,11 +256,9 @@ def my_alerts(request):
     return Response({
         "date": day,
         "pending_count": len(pending),
-        "awaiting_count": len(awaiting),
         "done_count": sum(1 for t in todos if t.is_done),
         "stale": TodoSerializer(stale, many=True).data,
         "pending": TodoSerializer(pending, many=True).data,
-        "awaiting": TodoSerializer(awaiting, many=True).data,
         "overdue_tasks": TaskSerializer(overdue_tasks, many=True).data,
     })
 
@@ -324,7 +296,6 @@ def meeting_today(request, team_id: int):
                     if row["note"] else None
                 ),
                 "pending": TodoSerializer(row["pending"], many=True).data,
-                "claimed": TodoSerializer(row["claimed"], many=True).data,
                 "done": TodoSerializer(row["done"], many=True).data,
                 "suggestions": TaskSerializer(row["suggestions"], many=True).data,
                 "overdue_tasks": TaskSerializer(row["overdue_tasks"], many=True).data,

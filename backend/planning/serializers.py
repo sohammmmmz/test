@@ -2,12 +2,16 @@ from rest_framework import serializers
 
 from accounts.serializers import UserSerializer
 
-from .models import Milestone, Task
+from .models import Issue, Milestone, Task
 
 
 class TaskSerializer(serializers.ModelSerializer):
     assignee = UserSerializer(read_only=True)
     is_overdue = serializers.BooleanField(read_only=True)
+    # A count rather than the issues themselves: a task with forty defects
+    # against it should not make the plan forty times bigger to load. The list
+    # is one request away, and only when somebody opens that task.
+    open_issue_count = serializers.SerializerMethodField()
     project_id = serializers.IntegerField(source="milestone.project_id", read_only=True)
     project_name = serializers.CharField(source="milestone.project.name", read_only=True)
     milestone_title = serializers.CharField(source="milestone.title", read_only=True)
@@ -17,7 +21,55 @@ class TaskSerializer(serializers.ModelSerializer):
         fields = ["id", "gitlab_iid", "title", "description", "state", "assignee",
                   "due_date", "labels", "web_url", "is_overdue", "milestone",
                   "milestone_title", "work_item_type", "project_id", "project_name",
+                  "open_issue_count", "closed_at", "created_at"]
+
+    def get_open_issue_count(self, task) -> int:
+        # Uses the annotation when the queryset provided one, so serializing a
+        # milestone's worth of tasks is not a query each.
+        cached = getattr(task, "open_issues", None)
+        if cached is not None:
+            return cached
+        return task.issues.filter(state=Issue.State.OPEN).count()
+
+
+class IssueSerializer(serializers.ModelSerializer):
+    reported_by = UserSerializer(read_only=True)
+    assignee = UserSerializer(read_only=True)
+    is_in_gitlab = serializers.BooleanField(read_only=True)
+    is_open = serializers.BooleanField(read_only=True)
+    severity_display = serializers.CharField(source="get_severity_display", read_only=True)
+    task_title = serializers.CharField(source="task.title", read_only=True)
+    task_gitlab_iid = serializers.IntegerField(source="task.gitlab_iid", read_only=True)
+    project_id = serializers.IntegerField(source="task.milestone.project_id", read_only=True)
+    project_name = serializers.CharField(source="task.milestone.project.name", read_only=True)
+    milestone_id = serializers.IntegerField(source="task.milestone_id", read_only=True)
+    milestone_title = serializers.CharField(source="task.milestone.title", read_only=True)
+
+    class Meta:
+        model = Issue
+        fields = ["id", "task", "task_title", "task_gitlab_iid", "title", "description",
+                  "severity", "severity_display", "state", "reported_by", "assignee",
+                  "gitlab_iid", "web_url", "is_linked", "is_in_gitlab", "is_open",
+                  "project_id", "project_name", "milestone_id", "milestone_title",
                   "closed_at", "created_at"]
+
+
+class IssueWriteSerializer(serializers.Serializer):
+    task = serializers.IntegerField()
+    title = serializers.CharField(max_length=512)
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    severity = serializers.ChoiceField(
+        choices=Issue.Severity.choices, required=False, default=Issue.Severity.MEDIUM
+    )
+    assignee_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+class IssueUpdateSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=512, required=False)
+    description = serializers.CharField(required=False, allow_blank=True)
+    severity = serializers.ChoiceField(choices=Issue.Severity.choices, required=False)
+    state = serializers.ChoiceField(choices=Issue.State.choices, required=False)
+    assignee_id = serializers.IntegerField(required=False, allow_null=True)
 
 
 class MilestoneSerializer(serializers.ModelSerializer):

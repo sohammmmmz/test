@@ -106,8 +106,7 @@ export default async function PersonPage({
             userId={person.id}
             canAdd
             canTick
-            canClose
-            title={`${weekday(day.date)}'s list`}
+              title={`${weekday(day.date)}'s list`}
           />
 
           <div className="stack gap-4">

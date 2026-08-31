@@ -207,7 +207,6 @@ def _people_rows(owner, period: Period) -> list[dict]:
             "todos_open_today": len(open_todos),
             "todos_in_period": len(window_rows),
             "todos_closed": sum(1 for t in window_rows if t.is_done),
-            "todos_awaiting": sum(1 for t in window_rows if t.is_claimed),
             "todos_carrying": sum(1 for t in today_todos if t.carry_count > 0),
             "todos_stale": sum(1 for t in open_todos if t.is_stale),
             "load": load,
@@ -296,10 +295,7 @@ def _activity_rows(owner, period: Period) -> list[dict]:
             "is_working_day": is_working_day(day),
             "todos": todos.count(),
             "closed": todos.filter(done_at__isnull=False).count(),
-            "awaiting": todos.filter(
-                done_at__isnull=True, claimed_at__isnull=False
-            ).count(),
-            "still_open": todos.filter(done_at__isnull=True, claimed_at__isnull=True).count(),
+            "still_open": todos.filter(done_at__isnull=True).count(),
             "tasks_closed": Task.objects.filter(
                 milestone__project__owner=owner,
                 state=Task.State.CLOSED, closed_at__date=day,
@@ -347,7 +343,6 @@ def build_report(owner, kind: str, anchor: date | None = None) -> dict:
         "overdue_tasks": sum(p["overdue_tasks"] for p in people),
         "tasks_closed": sum(p["closed_in_period"] for p in projects),
         "todos_closed": sum(a["closed"] for a in activity),
-        "todos_awaiting": sum(a["awaiting"] for a in activity),
         "meetings_held": sum(a["meetings"] for a in activity),
         "capacity_basis": settings.CAPACITY_OPEN_ITEMS,
     }

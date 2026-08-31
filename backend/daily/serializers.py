@@ -8,7 +8,6 @@ from .models import Meeting, MeetingNote, Todo
 
 class TodoSerializer(serializers.ModelSerializer):
     is_done = serializers.BooleanField(read_only=True)
-    is_claimed = serializers.BooleanField(read_only=True)
     status = serializers.CharField(read_only=True)
     is_stale = serializers.BooleanField(read_only=True)
     age_days = serializers.IntegerField(read_only=True)
@@ -16,9 +15,6 @@ class TodoSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source="user.display_name", read_only=True)
     # Who said what, so the screen can label a tick "marked by Ana" rather than
     # leaving the reader to guess which end of the review it came from.
-    claimed_by_name = serializers.CharField(
-        source="claimed_by.display_name", read_only=True, default=None
-    )
     closed_by_name = serializers.CharField(
         source="closed_by.display_name", read_only=True, default=None
     )
@@ -27,7 +23,6 @@ class TodoSerializer(serializers.ModelSerializer):
         model = Todo
         fields = ["id", "user", "user_name", "date", "title", "notes", "task",
                   "source", "status", "is_done", "done_at", "closed_by_name",
-                  "is_claimed", "claimed_at", "claimed_by_name",
                   "is_stale", "age_days",
                   "carry_count", "first_added_on", "created_at"]
 

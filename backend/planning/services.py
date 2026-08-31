@@ -19,7 +19,7 @@ from core.cache import claim, release
 from gitlab_api.exceptions import GitLabError, GitLabNotFound
 from gitlab_api.gateway import service_client
 
-from .models import Milestone, Task
+from .models import Issue, Milestone, Task
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -220,24 +220,144 @@ def update_task(task: Task, **fields) -> Task:
 
 
 def _complete_todos_for(task: Task) -> int:
-    """Closing the issue closes the line that pointed at it.
+    """Closing the work item closes the line that pointed at it.
 
-    This is the one closing nobody has to perform in the round: the evidence is
-    in GitLab, so it needs no confirming. The claim is stamped alongside it so
-    the todo does not read as closed by an owner who never saw it.
+    ``closed_by`` is left null on purpose: nobody in this app performed this
+    closing, GitLab did, and naming a person for it would be inventing a fact.
     """
     from daily.models import Todo
 
-    from django.db.models import Value
-    from django.db.models.functions import Coalesce
+    from core.cache import SCOPES, bump
 
-    now = timezone.now()
-    return Todo.objects.filter(task=task, done_at__isnull=True).update(
-        done_at=now,
-        # Coalesce, not a plain assignment: if the person already said it was
-        # finished, that is when they said it, not now.
-        claimed_at=Coalesce("claimed_at", Value(now)),
+    closed = Todo.objects.filter(task=task, done_at__isnull=True).update(
+        done_at=timezone.now()
     )
+    if closed:
+        # queryset.update() fires no post_save, so the signal that invalidates
+        # the todo scope never runs. See core.invalidation.
+        bump(SCOPES.TODOS)
+    return closed
+
+
+# ---------------------------------------------------------------------------
+# Issues raised against a task
+# ---------------------------------------------------------------------------
+
+
+def _cross_reference(task: Task) -> str:
+    """The line that makes an issue and its task findable from each other.
+
+    A bare ``#iid`` in an issue description is how GitLab has always made
+    cross-references, on every tier and every version back further than anything
+    anybody is still running. That is the whole reason it is here rather than
+    relying on the related-issues link: the link is the nicer artefact and the
+    less dependable one — it is a separate endpoint, it needs both ends visible
+    to the token, and its blocking variants are Premium. This works or the issue
+    would not have been created at all.
+    """
+    return f"\n\n---\nRaised against #{task.gitlab_iid} · logged from Morning Ledger."
+
+
+def log_issue(task: Task, *, title: str, description: str = "",
+              severity: str = Issue.Severity.MEDIUM, reported_by=None,
+              assignee=None) -> Issue:
+    """Record something wrong with this task.
+
+    Filed in GitLab when the task lives there, and here alone when it does not —
+    a task on a project with no repository, or one whose own GitLab write never
+    landed. The row is identical either way; only ``is_in_gitlab`` differs.
+
+    When GitLab is meant to have it and refuses, this raises rather than quietly
+    keeping a local copy. Falling back would leave two records of the same
+    defect disagreeing about whether it exists, and the caller has somewhere
+    better to put the failure: the browser holds the request and offers to send
+    it again.
+    """
+    project = task.milestone.project
+    repo = getattr(project, "repo", None)
+    upstream = repo is not None and task.gitlab_iid is not None
+
+    payload: dict = {}
+    linked = False
+
+    if upstream:
+        client = _client()
+        try:
+            payload = client.create_issue(
+                repo.gitlab_project_id,
+                title=title,
+                description=(description or "") + _cross_reference(task),
+                milestone_id=task.milestone.gitlab_id,
+                assignee_id=assignee.gitlab_user_id if assignee else None,
+                labels=[f"severity::{severity}"] if severity else None,
+            )
+        except GitLabError as exc:
+            raise PlanningError(f"GitLab would not create the issue: {exc}") from exc
+
+        # Best effort, and genuinely optional — see link_issues. The description
+        # already carries the reference, so a server that cannot do this loses
+        # nothing a person would notice.
+        try:
+            client.link_issues(
+                repo.gitlab_project_id,
+                payload["iid"],
+                target_project_id=repo.gitlab_project_id,
+                target_iid=task.gitlab_iid,
+            )
+            linked = True
+        except (GitLabError, KeyError) as exc:
+            logger.info(
+                "Issue %s filed but not formally linked to task %s: %s",
+                payload.get("iid"), task.gitlab_iid, exc,
+            )
+
+    return Issue.objects.create(
+        task=task,
+        title=title,
+        description=description or "",
+        severity=severity,
+        state=payload.get("state") or Issue.State.OPEN,
+        reported_by=reported_by,
+        assignee=assignee,
+        gitlab_id=payload.get("id"),
+        gitlab_iid=payload.get("iid"),
+        web_url=payload.get("web_url", "") or "",
+        is_linked=linked,
+    )
+
+
+def update_issue(issue: Issue, **fields) -> Issue:
+    """Edit or resolve an issue, upstream first where there is an upstream."""
+    repo = getattr(issue.task.milestone.project, "repo", None)
+
+    if issue.is_in_gitlab and repo is not None:
+        client = _client()
+        upstream: dict = {}
+        if "title" in fields:
+            upstream["title"] = fields["title"]
+        if "description" in fields:
+            upstream["description"] = (fields["description"] or "") + _cross_reference(issue.task)
+        if "assignee" in fields:
+            upstream["assignee_id"] = (
+                fields["assignee"].gitlab_user_id if fields["assignee"] else 0
+            )
+        if "state" in fields:
+            # A verb, not a value: GitLab takes state_event=close|reopen.
+            upstream["state_event"] = (
+                "close" if fields["state"] == Issue.State.CLOSED else "reopen"
+            )
+        if upstream:
+            try:
+                client.update_issue(repo.gitlab_project_id, issue.gitlab_iid, **upstream)
+            except GitLabError as exc:
+                raise PlanningError(f"GitLab would not accept the change: {exc}") from exc
+
+    for name, value in fields.items():
+        setattr(issue, name, value)
+    if "state" in fields:
+        issue.closed_at = timezone.now() if fields["state"] == Issue.State.CLOSED else None
+    issue.save()
+    return issue
 
 
 # ---------------------------------------------------------------------------

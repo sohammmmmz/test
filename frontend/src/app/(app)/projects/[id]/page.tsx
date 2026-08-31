@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { DeleteProject } from "@/components/DeleteProject";
 import { Documents } from "@/components/Documents";
 import { PhasePicker } from "@/components/PhasePicker";
+import { ProjectIssues } from "@/components/ProjectIssues";
 import { ReconcileOnOpen } from "@/components/ReconcileOnOpen";
 import { Plan } from "@/components/Plan";
 import { ProjectMembers } from "@/components/ProjectMembers";
@@ -148,6 +149,8 @@ export default async function ProjectPage({
           canEdit={user.is_owner}
           currentUserId={user.id}
         />
+
+        <ProjectIssues projectId={project.id} />
 
         <section className="grid cols-2-even" style={{ alignItems: "start" }}>
           <ProjectMembers

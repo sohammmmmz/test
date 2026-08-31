@@ -1,7 +1,7 @@
 """Milestones and tasks. Every write goes to GitLab first."""
 
 from django.contrib.auth import get_user_model
-from django.db.models import Q
+from django.db.models import Count, Prefetch, Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
@@ -11,8 +11,11 @@ from core.cache import SCOPES
 from core.http import CachedListMixin
 from projects.models import Project
 
-from .models import Milestone, Task
+from .models import Issue, Milestone, Task
 from .serializers import (
+    IssueSerializer,
+    IssueUpdateSerializer,
+    IssueWriteSerializer,
     MilestoneSerializer,
     MilestoneUpdateSerializer,
     MilestoneWriteSerializer,
@@ -24,6 +27,8 @@ from .services import (
     PlanningError,
     create_milestone,
     create_task,
+    log_issue,
+    update_issue,
     InheritedMilestone,
     delete_milestone,
     reconcile_project,
@@ -32,6 +37,16 @@ from .services import (
 )
 
 User = get_user_model()
+
+
+def _tasks_with_issue_counts():
+    """Tasks, each carrying how many issues are open against it."""
+    return (
+        Task.objects.select_related("assignee", "milestone__project")
+        .annotate(
+            open_issues=Count("issues", filter=Q(issues__state=Issue.State.OPEN))
+        )
+    )
 
 
 def _visible_projects(user):
@@ -57,7 +72,13 @@ class MilestoneViewSet(CachedListMixin, viewsets.ModelViewSet):
         qs = (
             Milestone.objects.filter(project__in=_visible_projects(self.request.user))
             .select_related("project")
-            .prefetch_related("tasks__assignee")
+            # The tasks are prefetched through an annotated queryset rather than
+            # plain, so each task's open-issue count comes back with it. Without
+            # this the serializer counts per task, which on a milestone of forty
+            # is forty queries to render one card.
+            .prefetch_related(
+                Prefetch("tasks", queryset=_tasks_with_issue_counts()),
+            )
         )
         project_id = self.request.query_params.get("project")
         if project_id:
@@ -125,9 +146,8 @@ class TaskViewSet(CachedListMixin, viewsets.ModelViewSet):
     cache_ttl_setting = "CACHE_TTL_PLAN"
 
     def get_queryset(self):
-        qs = (
-            Task.objects.filter(milestone__project__in=_visible_projects(self.request.user))
-            .select_related("assignee", "milestone__project")
+        qs = _tasks_with_issue_counts().filter(
+            milestone__project__in=_visible_projects(self.request.user)
         )
         for param, field in (
             ("project", "milestone__project_id"),
@@ -221,6 +241,124 @@ class TaskViewSet(CachedListMixin, viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         return super().destroy(request, *args, **kwargs)
+
+
+class IssueViewSet(CachedListMixin, viewsets.ModelViewSet):
+    """Problems raised against a task.
+
+    Anyone who can see the project can log one and can see the rest. That is
+    deliberate and different from milestones and tasks, which only an owner
+    writes: the person who finds a defect is almost never the person who planned
+    the work, and a tool that makes them ask someone else to file it is a tool
+    where defects do not get filed.
+
+    Resolving is narrower — the owner, the person it is assigned to, or whoever
+    raised it. Anybody being able to close anybody's bug report is how a list
+    stops meaning anything.
+    """
+
+    serializer_class = IssueSerializer
+    cache_scopes = (SCOPES.PLAN, SCOPES.PROJECTS, SCOPES.PEOPLE)
+    cache_ttl_setting = "CACHE_TTL_PLAN"
+
+    def get_queryset(self):
+        qs = (
+            Issue.objects.filter(
+                task__milestone__project__in=_visible_projects(self.request.user)
+            )
+            .select_related("task__milestone__project", "assignee", "reported_by")
+        )
+        for param, field in (
+            ("task", "task_id"),
+            ("project", "task__milestone__project_id"),
+            ("milestone", "task__milestone_id"),
+            ("assignee", "assignee_id"),
+            ("state", "state"),
+            ("severity", "severity"),
+        ):
+            value = self.request.query_params.get(param)
+            if value:
+                qs = qs.filter(**{field: value})
+        return qs
+
+    def _task_or_none(self, task_id):
+        return (
+            Task.objects.filter(
+                pk=task_id, milestone__project__in=_visible_projects(self.request.user)
+            )
+            .select_related("milestone__project__repo")
+            .first()
+        )
+
+    def create(self, request, *args, **kwargs):
+        form = IssueWriteSerializer(data=request.data)
+        form.is_valid(raise_exception=True)
+        data = form.validated_data
+
+        task = self._task_or_none(data["task"])
+        if task is None:
+            return Response({"detail": "No such task."}, status=status.HTTP_404_NOT_FOUND)
+
+        assignee = None
+        if data.get("assignee_id"):
+            assignee = User.objects.filter(pk=data["assignee_id"]).first()
+
+        try:
+            issue = log_issue(
+                task,
+                title=data["title"],
+                description=data.get("description", ""),
+                severity=data.get("severity") or Issue.Severity.MEDIUM,
+                reported_by=request.user,
+                assignee=assignee,
+            )
+        except PlanningError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(IssueSerializer(issue).data, status=status.HTTP_201_CREATED)
+
+    def _may_change(self, issue) -> bool:
+        user = self.request.user
+        return (
+            user.is_owner
+            or issue.reported_by_id == user.id
+            or issue.assignee_id == user.id
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        issue = self.get_object()
+        if not self._may_change(issue):
+            return Response(
+                {"detail": "Only the owner, the assignee, or whoever raised it "
+                           "can change this issue."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        form = IssueUpdateSerializer(data=request.data, partial=True)
+        form.is_valid(raise_exception=True)
+        fields = dict(form.validated_data)
+        if "assignee_id" in fields:
+            assignee_id = fields.pop("assignee_id")
+            fields["assignee"] = (
+                User.objects.filter(pk=assignee_id).first() if assignee_id else None
+            )
+
+        try:
+            issue = update_issue(issue, **fields)
+        except PlanningError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(IssueSerializer(issue).data)
+
+    def update(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        # Deleting here would leave the GitLab issue orphaned and still open,
+        # which is worse than the row staying. Resolve it instead.
+        return Response(
+            {"detail": "Issues are resolved, not deleted. Set state to closed."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
 
 
 @api_view(["POST"])

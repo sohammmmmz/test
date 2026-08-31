@@ -6,6 +6,7 @@ from . import views
 router = DefaultRouter()
 router.register("milestones", views.MilestoneViewSet, basename="milestone")
 router.register("tasks", views.TaskViewSet, basename="task")
+router.register("issues", views.IssueViewSet, basename="issue")
 
 urlpatterns = [
     path("reconcile/<int:project_id>", views.reconcile, name="planning-reconcile"),
