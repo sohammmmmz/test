@@ -493,8 +493,19 @@ member's tick only *claimed* a line and an owner closed it in the morning
 meeting — and it is gone. It made ticking your own work feel like filing a
 request, and reopening a closed line cleared `done_at` but left `claimed_at`
 behind, so the line came back reading "marked done by … · waiting to be closed"
-instead of open. `daily/migrations/0003` drops the columns and closes anything
-that was mid-flight, crediting whoever ticked it.
+instead of open.
+
+It takes two migrations, and the split is not cosmetic. `daily/0003` closes
+anything that was mid-flight, crediting whoever ticked it; `daily/0004` drops
+the columns. Postgres refuses to `ALTER TABLE` a table with *pending trigger
+events*, and the update in `0003` creates them — it writes `closed_by`, a
+foreign key, whose constraint Django declares `DEFERRABLE INITIALLY DEFERRED`.
+One migration doing both runs in one transaction and dies with
+
+    cannot ALTER TABLE "daily_todo" because it has pending trigger events
+
+but only on a database with rows to update. Split, each gets its own
+transaction, and the triggers have fired before the columns are touched.
 
 Reversing a tick opens a confirmation; taking one does not. They are the same
 button in the same place, and on a list of finished lines a stray click
