@@ -18,6 +18,9 @@ from rest_framework.response import Response
 from accounts.permissions import IsOwner
 from accounts.serializers import UserSerializer
 
+from core.cache import SCOPES
+from core.http import CachedListMixin
+
 from .models import Team, TeamInvite, TeamMembership, ensure_general_team
 from .serializers import (
     AddMemberSerializer,
@@ -40,10 +43,13 @@ def _live_invites(team):
     return team.invites.filter(revoked_at__isnull=True).select_related("created_by")
 
 
-class TeamViewSet(viewsets.ModelViewSet):
+class TeamViewSet(CachedListMixin, viewsets.ModelViewSet):
     """Owners manage their own teams; members can read the ones they are on."""
 
     serializer_class = TeamSerializer
+    # A team's card shows its roster, and General's roster is the union of every
+    # other team's — so no team is cacheable independently of the rest.
+    cache_scopes = (SCOPES.TEAMS, SCOPES.PEOPLE)
 
     def get_permissions(self):
         if self.action in ("list", "retrieve"):

@@ -1,7 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useActivity } from "./Activity";
+import { Confirm } from "./Confirm";
 import { Avatar, Meter, Tick } from "./ui";
 import { dueSoon, relativeDue, shortDate } from "@/lib/format";
 import type { Milestone, Task, User } from "@/lib/types";
@@ -20,52 +21,85 @@ export function Plan({ projectId, milestones, members, canEdit, currentUserId }:
   canEdit: boolean;
   currentUserId: number;
 }) {
-  const router = useRouter();
-  const [, startTransition] = useTransition();
+  const { run, refreshSoon } = useActivity();
   const [adding, setAdding] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
   // Which milestone is open. One at a time: comparing two task lists side by
   // side is not something anybody does, and it is what makes the grid tall.
   const [openId, setOpenId] = useState<number | null>(null);
+  const [reopening, setReopening] = useState<Task | null>(null);
 
-  const refresh = () => startTransition(() => router.refresh());
+  /**
+   * Tasks changed here but not yet confirmed by GitLab.
+   *
+   * These writes are the slowest in the app — every one is a round trip to
+   * GitLab before this database is touched at all — so waiting for them before
+   * moving a tick mark made the board feel broken. Dropped wholesale when a new
+   * `milestones` prop arrives, which is the server's answer superseding the
+   * guess either way.
+   */
+  const [patched, setPatched] = useState<Record<number, Partial<Task>>>({});
+  useEffect(() => setPatched({}), [milestones]);
 
-  async function send(url: string, method: string, body?: unknown) {
-    setFailure(null);
-    const res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : undefined,
+  const shown = useMemo(
+    () => milestones.map((m) => ({
+      ...m,
+      tasks: m.tasks.map((t) => (patched[t.id] ? { ...t, ...patched[t.id] } : t)),
+    })),
+    [milestones, patched],
+  );
+
+  function patchTask(task: Task, change: Partial<Task>, spec: {
+    key: string; done: string; failed: string; body: unknown;
+  }) {
+    setPatched((all) => ({ ...all, [task.id]: { ...all[task.id], ...change } }));
+    run({
+      key: spec.key,
+      pending: spec.done,
+      done: spec.done,
+      failed: spec.failed,
+      method: "PATCH",
+      path: `/api/planning/tasks/${task.id}/`,
+      body: spec.body,
+      targetUrl: `/projects/${projectId}`,
     });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setFailure(data.detail ?? "GitLab turned that down. Nothing was changed.");
-      return null;
-    }
-    return res.status === 204 ? {} : await res.json();
   }
 
-  async function toggleTask(task: Task) {
-    setBusy(`task-${task.id}`);
-    const next = task.state === "closed" ? "opened" : "closed";
-    if (await send(`/api/proxy/api/planning/tasks/${task.id}/`, "PATCH", { state: next })) {
-      refresh();
+  function toggleTask(task: Task) {
+    // Reopening is the reversal, and it asks first. Closing does not: it is the
+    // action people take all day, and a dialog in front of it would be noise.
+    if (task.state === "closed") {
+      setReopening(task);
+      return;
     }
-    setBusy(null);
+    patchTask(task, { state: "closed" }, {
+      key: `task:${task.id}:state`,
+      done: `Closed “${task.title}”`,
+      failed: `Could not close “${task.title}” in GitLab`,
+      body: { state: "closed" },
+    });
   }
 
-  async function reassign(task: Task, assigneeId: number | null) {
-    setBusy(`task-${task.id}`);
-    if (await send(`/api/proxy/api/planning/tasks/${task.id}/`, "PATCH",
-                   { assignee_id: assigneeId })) {
-      refresh();
-    }
-    setBusy(null);
+  function reopenTask(task: Task) {
+    patchTask(task, { state: "opened" }, {
+      key: `task:${task.id}:state`,
+      done: `Reopened “${task.title}”`,
+      failed: `Could not reopen “${task.title}” in GitLab`,
+      body: { state: "opened" },
+    });
   }
 
-  const active = milestones.filter((m) => m.state === "active");
-  const closed = milestones.filter((m) => m.state === "closed");
+  function reassign(task: Task, assigneeId: number | null) {
+    const person = members.find((m) => m.id === assigneeId) ?? null;
+    patchTask(task, { assignee: person }, {
+      key: `task:${task.id}:assignee`,
+      done: person ? `Assigned to ${person.display_name}` : "Unassigned",
+      failed: `Could not reassign “${task.title}” in GitLab`,
+      body: { assignee_id: assigneeId },
+    });
+  }
+
+  const active = shown.filter((m) => m.state === "active");
+  const closed = shown.filter((m) => m.state === "closed");
   const ordered = [...active, ...closed];
   const open = ordered.find((m) => m.id === openId) ?? null;
 
@@ -75,6 +109,17 @@ export function Plan({ projectId, milestones, members, canEdit, currentUserId }:
 
   return (
     <section className="stack gap-4">
+      {reopening && (
+        <Confirm
+          title="Reopen this task?"
+          body={`“${reopening.title}” is closed. Reopening it here reopens the work item in GitLab too.`}
+          confirmLabel="Reopen it"
+          tone="attention"
+          onCancel={() => setReopening(null)}
+          onConfirm={() => { reopenTask(reopening); setReopening(null); }}
+        />
+      )}
+
       <div className="row between center wrap gap-3">
         <div className="stack gap-1">
           <h2>The plan</h2>
@@ -93,18 +138,10 @@ export function Plan({ projectId, milestones, members, canEdit, currentUserId }:
         )}
       </div>
 
-      {failure && (
-        <div className="panel" style={{ padding: "11px 15px", fontSize: ".84rem",
-                                        background: "var(--overdue-wash)",
-                                        borderColor: "var(--overdue)", color: "var(--overdue)" }}>
-          {failure}
-        </div>
-      )}
-
       {adding && (
         <MilestoneForm
           projectId={projectId}
-          onDone={() => { setAdding(false); refresh(); }}
+          onDone={() => { setAdding(false); refreshSoon(); }}
           onCancel={() => setAdding(false)}
         />
       )}
@@ -142,10 +179,9 @@ export function Plan({ projectId, milestones, members, canEdit, currentUserId }:
           members={members}
           canEdit={canEdit}
           currentUserId={currentUserId}
-          busy={busy}
           onToggleTask={toggleTask}
           onReassign={reassign}
-          onChanged={refresh}
+          onChanged={refreshSoon}
           onClose={() => setOpenId(null)}
         />
       )}
@@ -235,19 +271,19 @@ function Ring({ total, done, percent, tone }: {
 
 /** The open milestone: its tasks, who has them, and what is left. */
 function MilestoneDetail({
-  milestone, members, canEdit, currentUserId, busy,
+  milestone, members, canEdit, currentUserId,
   onToggleTask, onReassign, onChanged, onClose,
 }: {
   milestone: Milestone;
   members: User[];
   canEdit: boolean;
   currentUserId: number;
-  busy: string | null;
   onToggleTask: (task: Task) => void;
   onReassign: (task: Task, assigneeId: number | null) => void;
   onChanged: () => void;
   onClose: () => void;
 }) {
+  const { inFlight } = useActivity();
   const [addingTask, setAddingTask] = useState(false);
   const done = milestone.state === "closed";
   const { total, done: closedCount } = milestone.progress;
@@ -316,14 +352,18 @@ function MilestoneDetail({
 
       <div className="stack">
         {tasks.map((task) => {
-          const isBusy = busy === `task-${task.id}`;
+          // Settling, not blocking. The row already shows the new state; this
+          // only takes the shine off it until GitLab has agreed.
+          const settling = inFlight.has(`task:${task.id}:state`)
+            || inFlight.has(`task:${task.id}:assignee`);
           const mayToggle = canEdit || task.assignee?.id === currentUserId;
           return (
-            <div key={task.id} className="todo" data-done={task.state === "closed"}>
+            <div key={task.id} className="todo" data-done={task.state === "closed"}
+                 style={settling ? { opacity: .6 } : undefined}>
               <button
                 className="check"
                 data-done={task.state === "closed"}
-                disabled={!mayToggle || isBusy}
+                disabled={!mayToggle}
                 onClick={() => onToggleTask(task)}
                 aria-label={task.state === "closed" ? `Reopen ${task.title}` : `Mark ${task.title} done`}
                 title={mayToggle ? undefined : "Only the assignee or the project owner can change this"}
@@ -358,7 +398,6 @@ function MilestoneDetail({
                   className="field"
                   style={{ width: "auto", minWidth: 132, fontSize: ".78rem", padding: "5px 8px" }}
                   value={task.assignee?.id ?? ""}
-                  disabled={isBusy}
                   onChange={(e) => onReassign(task, e.target.value ? Number(e.target.value) : null)}
                   aria-label={`Who is doing ${task.title}`}
                 >

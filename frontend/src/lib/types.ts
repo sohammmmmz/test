@@ -468,3 +468,31 @@ export type ReportPreview = {
   milestones: ReportMilestone[];
   activity: ReportActivity[];
 };
+
+/**
+ * A line in the notification tab.
+ *
+ * `local: true` marks a failure the browser recorded but could not file — the
+ * usual cause being that the server was the thing that was unreachable. It has
+ * a negative id, because a real one only exists once the server has taken it.
+ */
+export type AppNotification = {
+  id: number;
+  kind: "failed" | "done" | "info";
+  title: string;
+  body: string;
+  target_url: string;
+  dedupe_key: string;
+  attempts: number;
+  retry_method: string;
+  retry_path: string;
+  retry_body: unknown;
+  is_read: boolean;
+  is_resolved: boolean;
+  can_retry: boolean;
+  read_at: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+  local?: boolean;
+};

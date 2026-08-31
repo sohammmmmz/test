@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useActivity } from "./Activity";
 import { Avatar } from "./ui";
 import type { ProjectMember, Team } from "@/lib/types";
 
@@ -18,34 +18,58 @@ export function ProjectMembers({ projectId, members, teams, canEdit }: {
   teams: Team[];
   canEdit: boolean;
 }) {
-  const router = useRouter();
-  const [busy, setBusy] = useState<number | null>(null);
+  const { run, refreshSoon, inFlight } = useActivity();
   const [importing, setImporting] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
-  const onProject = new Set(members.map((m) => m.user.id));
+  /**
+   * Rows added or dropped here but not yet confirmed.
+   *
+   * Adding somebody to a project is three things upstream — the membership, the
+   * repository access, and a branch cut for them — so it is among the slowest
+   * writes in the app and the most worth showing immediately. Cleared when a
+   * fresh `members` prop arrives.
+   */
+  const [pendingAdds, setPendingAdds] = useState<ProjectMember[]>([]);
+  const [pendingRemovals, setPendingRemovals] = useState<number[]>([]);
+  useEffect(() => { setPendingAdds([]); setPendingRemovals([]); }, [members]);
+
+  const shown = useMemo(
+    () => [...members.filter((m) => !pendingRemovals.includes(m.user.id)), ...pendingAdds],
+    [members, pendingAdds, pendingRemovals],
+  );
+
+  const onProject = new Set(shown.map((m) => m.user.id));
   const available = teams
     .flatMap((t) => t.members.map((m) => m.user))
     .filter((u, i, arr) => arr.findIndex((x) => x.id === u.id) === i)
     .filter((u) => !onProject.has(u.id));
 
-  async function add(userId: number) {
-    setBusy(userId);
+  function add(userId: number) {
+    const person = available.find((u) => u.id === userId);
+    if (!person) return;
     setFailure(null);
-    const res = await fetch(`/api/proxy/api/projects/${projectId}/members/`, {
+    setPendingAdds((all) => [...all, {
+      user: person, branch_name: "", role: "member",
+    } as unknown as ProjectMember]);
+
+    run({
+      key: `project:${projectId}:member:${userId}:add`,
+      pending: `Adding ${person.display_name}`,
+      done: `${person.display_name} is on the project`,
+      failed: `Could not add ${person.display_name} to this project`,
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: userId }),
+      path: `/api/projects/${projectId}/members/`,
+      body: { user_id: userId },
+      targetUrl: `/projects/${projectId}`,
+      // The write can succeed and still have something to say — most often that
+      // the person is on the repository but their branch could not be cut.
+      onSuccess: (data) => {
+        const warnings = (data as { warnings?: string[] } | null)?.warnings;
+        if (warnings?.length) setFailure(warnings.join(" "));
+      },
     });
-    const data = await res.json().catch(() => ({}));
-    setBusy(null);
-    if (!res.ok) {
-      setFailure(data.detail ?? "That did not work.");
-      return;
-    }
-    if (data.warnings?.length) setFailure(data.warnings.join(" "));
-    router.refresh();
   }
 
   /**
@@ -92,14 +116,23 @@ export function ProjectMembers({ projectId, members, teams, canEdit }: {
     if (report.warnings?.length) lines.push(report.warnings.join(" "));
 
     setNote(lines.join(" "));
-    router.refresh();
+    refreshSoon();
   }
 
-  async function remove(userId: number) {
-    setBusy(userId);
-    await fetch(`/api/proxy/api/projects/${projectId}/members/${userId}/`, { method: "DELETE" });
-    setBusy(null);
-    router.refresh();
+  function remove(userId: number) {
+    const person = shown.find((m) => m.user.id === userId)?.user;
+    setPendingRemovals((all) => [...all, userId]);
+    run({
+      key: `project:${projectId}:member:${userId}:remove`,
+      pending: "Removing",
+      done: person ? `Removed ${person.display_name}` : "Removed",
+      failed: person
+        ? `Could not remove ${person.display_name} from this project`
+        : "Could not remove that person",
+      method: "DELETE",
+      path: `/api/projects/${projectId}/members/${userId}/`,
+      targetUrl: `/projects/${projectId}`,
+    });
   }
 
   return (
@@ -119,7 +152,7 @@ export function ProjectMembers({ projectId, members, teams, canEdit }: {
               Import from repository
             </button>
           )}
-          <span className="eyebrow">{members.length} people</span>
+          <span className="eyebrow">{shown.length} people</span>
         </span>
       </div>
 
@@ -138,7 +171,7 @@ export function ProjectMembers({ projectId, members, teams, canEdit }: {
       )}
 
       <div className="stack">
-        {members.map((member) => (
+        {shown.map((member) => (
           <div key={member.id} className="row gap-3 center"
                style={{ padding: "11px 18px", borderBottom: "1px solid var(--line)" }}>
             <Avatar name={member.user.display_name}
@@ -157,7 +190,8 @@ export function ProjectMembers({ projectId, members, teams, canEdit }: {
               </span>
             )}
             {canEdit && (
-              <button className="btn btn-ghost btn-sm" disabled={busy === member.user.id}
+              <button className="btn btn-ghost btn-sm"
+                      disabled={inFlight.has(`project:${projectId}:member:${member.user.id}:remove`)}
                       onClick={() => remove(member.user.id)}
                       aria-label={`Remove ${member.user.display_name}`}>
                 Remove
@@ -166,7 +200,7 @@ export function ProjectMembers({ projectId, members, teams, canEdit }: {
           </div>
         ))}
 
-        {members.length === 0 && (
+        {shown.length === 0 && (
           <p className="faint" style={{ padding: "18px", fontSize: ".85rem" }}>
             Nobody is on this project yet.
           </p>
@@ -179,9 +213,9 @@ export function ProjectMembers({ projectId, members, teams, canEdit }: {
           <span className="eyebrow">Add from your team</span>
           <div className="row gap-2 wrap">
             {available.map((person) => (
-              <button key={person.id} className="btn btn-sm" disabled={busy === person.id}
+              <button key={person.id} className="btn btn-sm"
+                      disabled={inFlight.has(`project:${projectId}:member:${person.id}:add`)}
                       onClick={() => add(person.id)}>
-                {busy === person.id && <span className="spin" />}
                 {person.display_name}
               </button>
             ))}

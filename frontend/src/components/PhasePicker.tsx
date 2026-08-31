@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { useActivity } from "./Activity";
 import type { Phase } from "@/lib/types";
 
 /**
@@ -25,12 +25,13 @@ export function PhasePicker({ projectId, status, statusDisplay, phaseIndex, phas
   phaseCount: number;
   canEdit: boolean;
 }) {
-  const router = useRouter();
-  const [, startTransition] = useTransition();
+  const { run } = useActivity();
   const [open, setOpen] = useState(false);
   const [phases, setPhases] = useState<Phase[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  // The phase picked here but not yet confirmed. Cleared when the server sends
+  // a new `status` prop, whether it agreed or not.
+  const [chosen, setChosen] = useState<string | null>(null);
+  useEffect(() => setChosen(null), [status]);
   const box = useRef<HTMLDivElement>(null);
   const anchor = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -93,26 +94,35 @@ export function PhasePicker({ projectId, status, statusDisplay, phaseIndex, phas
 
   async function move(next: string) {
     if (next === status) { setOpen(false); return; }
-    setBusy(next);
-    setFailure(null);
 
-    const res = await fetch(`/api/proxy/api/projects/${projectId}/`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: next }),
-    });
-    setBusy(null);
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      setFailure(body?.detail ?? "That phase could not be set.");
-      return;
-    }
+    // The ladder moves now. A phase change is one field on one row; making
+    // somebody watch a spinner for it was the clearest case in the app of a
+    // trivial write dressed up as a slow one.
+    setChosen(next);
     setOpen(false);
-    startTransition(() => router.refresh());
+    run({
+      key: `project:${projectId}:phase`,
+      pending: `Moving to ${label(next)}`,
+      done: `Now in ${label(next)}`,
+      failed: `Could not move this project to ${label(next)}`,
+      method: "PATCH",
+      path: `/api/projects/${projectId}/`,
+      body: { status: next },
+      targetUrl: `/projects/${projectId}`,
+    });
   }
 
-  const done = status === "closed";
+  function label(value: string): string {
+    return phases.find((p) => p.value === value)?.label ?? value;
+  }
+
+  const shown = chosen ?? status;
+  const shownPhase = phases.find((p) => p.value === shown);
+  // Falls back to the props while the phase list is still being fetched: the
+  // ladder must not jump back to the old rung for the moment before it lands.
+  const shownLabel = chosen ? (shownPhase?.label ?? chosen) : statusDisplay;
+  const shownIndex = chosen ? (shownPhase?.index ?? phaseIndex) : phaseIndex;
+  const done = shown === "closed";
   const tone = done ? "var(--ink-faint)" : "var(--brand)";
 
   return (
@@ -120,7 +130,7 @@ export function PhasePicker({ projectId, status, statusDisplay, phaseIndex, phas
       <div className="row between center gap-2">
         <span className="eyebrow">Phase</span>
         <span className="mono faint" style={{ fontSize: ".72rem" }}>
-          {phaseIndex + 1}/{phaseCount}
+          {shownIndex + 1}/{phaseCount}
         </span>
       </div>
 
@@ -133,7 +143,7 @@ export function PhasePicker({ projectId, status, statusDisplay, phaseIndex, phas
         aria-haspopup="listbox"
         title={canEdit ? "Move this project on" : undefined}
       >
-        <span className="phase-name" style={{ color: tone }}>{statusDisplay}</span>
+        <span className="phase-name" style={{ color: tone }}>{shownLabel}</span>
         {canEdit && (
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
@@ -146,16 +156,12 @@ export function PhasePicker({ projectId, status, statusDisplay, phaseIndex, phas
       {/* The ladder. Rungs behind the current phase are filled, so how far along
           the project is reads without anybody counting. */}
       <span className="rungs" role="img"
-            aria-label={`Phase ${phaseIndex + 1} of ${phaseCount}`}>
+            aria-label={`Phase ${shownIndex + 1} of ${phaseCount}`}>
         {Array.from({ length: phaseCount }, (_, i) => (
-          <i key={i} data-state={i < phaseIndex ? "past" : i === phaseIndex ? "now" : "ahead"}
+          <i key={i} data-state={i < shownIndex ? "past" : i === shownIndex ? "now" : "ahead"}
              data-closed={done} />
         ))}
       </span>
-
-      {failure && (
-        <span style={{ fontSize: ".75rem", color: "var(--overdue)" }}>{failure}</span>
-      )}
 
       {open && at && createPortal(
         <div ref={menu} className="phase-menu" role="listbox" aria-label="Delivery phase"
@@ -169,18 +175,16 @@ export function PhasePicker({ projectId, status, statusDisplay, phaseIndex, phas
             <button
               key={phase.value}
               role="option"
-              aria-selected={phase.value === status}
+              aria-selected={phase.value === shown}
               className="phase-option"
-              data-current={phase.value === status}
-              data-past={phase.index < phaseIndex}
-              disabled={busy !== null}
+              data-current={phase.value === shown}
+              data-past={phase.index < shownIndex}
               onClick={() => move(phase.value)}
             >
               <span className="phase-dot" data-state={
-                phase.index < phaseIndex ? "past" : phase.index === phaseIndex ? "now" : "ahead"
+                phase.index < shownIndex ? "past" : phase.index === shownIndex ? "now" : "ahead"
               } />
               <span className="grow">{phase.label}</span>
-              {busy === phase.value && <span className="spin" />}
             </button>
           ))}
         </div>,

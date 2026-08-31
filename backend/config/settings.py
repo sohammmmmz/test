@@ -35,12 +35,14 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "corsheaders",
+    "core",
     "accounts",
     "gitlab_api",
     "teams",
     "projects",
     "planning",
     "daily",
+    "notifications",
 ]
 
 MIDDLEWARE = [
@@ -78,6 +80,71 @@ DATABASES = {
         default="postgres://postgres:postgres@localhost:5432/pms",
     )
 }
+
+# --------------------------------------------------------------------------
+# Cache
+#
+# Redis when there is one, local memory when there is not, and the app has to
+# behave the same either way. That is not a convenience: on an air-gapped
+# install "we did not deploy a Redis" is a normal answer, and a product that
+# only works with one would be undeployable there.
+#
+# The local-memory fallback is per-process, so with more than one worker each
+# has its own copy and its own version counters. Values still expire on their
+# TTL and every read path stays correct, but two workers can briefly disagree
+# about how fresh something is. Run Redis for anything with more than one
+# person in it.
+#
+# Short timeouts on purpose. A cache that hangs is worse than one that is
+# missing, because every request waits for it; ``core.cache`` treats a failed
+# call as a miss, and a miss has to be cheap to discover.
+# --------------------------------------------------------------------------
+
+REDIS_URL = env("REDIS_URL", default="")
+
+try:  # pragma: no cover - import probe
+    import redis as _redis  # noqa: F401
+    _HAS_REDIS = True
+except ImportError:
+    _HAS_REDIS = False
+
+if REDIS_URL and _HAS_REDIS:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "KEY_PREFIX": env("REDIS_KEY_PREFIX", default=""),
+            "OPTIONS": {
+                "socket_connect_timeout": env.int("REDIS_CONNECT_TIMEOUT", default=2),
+                "socket_timeout": env.int("REDIS_TIMEOUT", default=2),
+            },
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "morning-ledger",
+            # Comfortably more than the number of distinct keys this app has,
+            # so the fallback does not start culling and behaving unlike Redis.
+            "OPTIONS": {"MAX_ENTRIES": 5000, "CULL_FREQUENCY": 4},
+        }
+    }
+
+# How long a cached read may be stale if nothing invalidates it first. Writes
+# bump their scope immediately (see ``core.invalidation``), so these are the
+# backstop for changes this app never sees — someone editing a milestone in
+# GitLab's own UI — not the primary freshness mechanism.
+CACHE_TTL_DASHBOARD = env.int("CACHE_TTL_DASHBOARD", default=60)
+CACHE_TTL_LIST = env.int("CACHE_TTL_LIST", default=120)
+CACHE_TTL_PLAN = env.int("CACHE_TTL_PLAN", default=120)
+CACHE_TTL_DAY = env.int("CACHE_TTL_DAY", default=30)
+
+# Reconciling against GitLab is two or more HTTP round trips to a server that
+# may be across a VPN. Opening a project asks for it, and so does every refresh
+# after every small edit on that screen, so it is throttled to once per window
+# per project rather than run per render.
+RECONCILE_THROTTLE_SECONDS = env.int("RECONCILE_THROTTLE_SECONDS", default=90)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"

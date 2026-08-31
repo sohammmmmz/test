@@ -15,6 +15,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from core.cache import SCOPES, bump
 from planning.models import Task
 
 from .models import Meeting, MeetingNote, MeetingStatus, Todo, TodoSource
@@ -49,32 +50,15 @@ def previous_working_day(day: date) -> date | None:
 
 
 @transaction.atomic
-def ensure_day(user, day: date) -> list[Todo]:
-    """Materialise ``user``'s list for ``day``, carrying forward what is unfinished.
+def _carry_rows(user, day: date, unfinished) -> list[Todo]:
+    """The rows that yesterday's unfinished work becomes today.
 
-    Idempotent: asking twice does not duplicate anything, which matters because
-    every screen that shows a day calls this.
+    Built rather than saved, so the caller decides whether that is one insert or
+    one per person. Shared by ``ensure_day`` and ``ensure_days`` so the rules
+    about what carries — and what it costs the person when it does — are written
+    once.
     """
-    existing = list(Todo.objects.filter(user=user, date=day).select_related("task"))
-    if existing:
-        return existing
-
-    if not is_working_day(day):
-        # Nobody is expected to work, so nothing is carried onto it. A todo
-        # added by hand on a Saturday is still perfectly allowed.
-        return []
-
-    previous = previous_working_day(day)
-    if previous is None:
-        return []
-
-    unfinished = (
-        Todo.objects.filter(user=user, date=previous, done_at__isnull=True)
-        .select_related("task")
-        .order_by("-carry_count", "id")
-    )
-
-    carried = []
+    rows = []
     for todo in unfinished:
         # A todo whose task was closed elsewhere is finished, not carried.
         if todo.task and todo.task.state == Task.State.CLOSED:
@@ -83,7 +67,7 @@ def ensure_day(user, day: date) -> list[Todo]:
         # it, and does not age: it is sitting on the owner's review, not on
         # them, so counting another day against it would blame the wrong end.
         claimed = todo.claimed_at is not None
-        carried.append(
+        rows.append(
             Todo(
                 user=user,
                 date=day,
@@ -99,9 +83,99 @@ def ensure_day(user, day: date) -> list[Todo]:
                 created_by=todo.created_by,
             )
         )
+    return rows
 
+
+def ensure_days(users, day: date) -> dict[int, list[Todo]]:
+    """``ensure_day`` for a group of people, in a fixed number of queries.
+
+    The overview and the meeting board both need everybody's list at once, and
+    calling ``ensure_day`` in a loop cost several queries per person on every
+    render — on a team of twelve that is dozens of round trips to Postgres for a
+    screen whose answer is two ``WHERE date = ... AND user_id IN (...)``.
+
+    Worth noting that a person with genuinely nothing on today is not
+    materialised — there is no row to find — so their carry-forward lookup runs
+    again on every render. That is why it is the *bulk* lookup that matters
+    here and not just the first-of-the-day one.
+    """
+    users = list(users)
+    by_user: dict[int, list[Todo]] = {u.id: [] for u in users}
+    if not users:
+        return by_user
+
+    for todo in (
+        Todo.objects.filter(user_id__in=list(by_user), date=day)
+        .select_related("task")
+        .order_by("id")
+    ):
+        by_user[todo.user_id].append(todo)
+
+    missing = [u for u in users if not by_user[u.id]]
+    # Nobody is expected to work, so nothing is carried onto it. A todo added by
+    # hand on a Saturday is still perfectly allowed.
+    if not missing or not is_working_day(day):
+        return by_user
+    previous = previous_working_day(day)
+    if previous is None:
+        return by_user
+
+    missing_ids = [u.id for u in missing]
+    unfinished: dict[int, list[Todo]] = {uid: [] for uid in missing_ids}
+    for todo in (
+        Todo.objects.filter(user_id__in=missing_ids, date=previous, done_at__isnull=True)
+        .select_related("task")
+        .order_by("-carry_count", "id")
+    ):
+        unfinished[todo.user_id].append(todo)
+
+    carried = []
+    for user in missing:
+        carried.extend(_carry_rows(user, day, unfinished[user.id]))
+    if not carried:
+        return by_user
+
+    Todo.objects.bulk_create(carried)
+    # bulk_create fires no post_save, so the invalidation wired to that signal
+    # never runs. Bumping by hand here is the price of the one insert.
+    bump(SCOPES.TODOS)
+
+    for todo in (
+        Todo.objects.filter(user_id__in=missing_ids, date=day)
+        .select_related("task")
+        .order_by("id")
+    ):
+        by_user[todo.user_id].append(todo)
+    return by_user
+
+
+def ensure_day(user, day: date) -> list[Todo]:
+    """Materialise ``user``'s list for ``day``, carrying forward what is unfinished.
+
+    Idempotent: asking twice does not duplicate anything, which matters because
+    every screen that shows a day calls this.
+    """
+    existing = list(Todo.objects.filter(user=user, date=day).select_related("task"))
+    if existing:
+        return existing
+
+    if not is_working_day(day):
+        return []
+
+    previous = previous_working_day(day)
+    if previous is None:
+        return []
+
+    unfinished = (
+        Todo.objects.filter(user=user, date=previous, done_at__isnull=True)
+        .select_related("task")
+        .order_by("-carry_count", "id")
+    )
+
+    carried = _carry_rows(user, day, unfinished)
     if carried:
         Todo.objects.bulk_create(carried)
+        bump(SCOPES.TODOS)  # see ensure_days: bulk_create fires no signals
     return list(Todo.objects.filter(user=user, date=day).select_related("task"))
 
 
@@ -243,9 +317,12 @@ def meeting_board(team, day: date, owner) -> dict:
     meeting = get_or_create_meeting(team, day, owner)
     notes = {n.user_id: n for n in meeting.notes.select_related("user")}
 
+    people = team_members(team)
+    days = ensure_days(people, day)
+
     rows = []
-    for user in team_members(team):
-        todos = ensure_day(user, day)
+    for user in people:
+        todos = days[user.id]
         pending = [t for t in todos if t.status == "open"]
         claimed = [t for t in todos if t.is_claimed]
         closed = [t for t in todos if t.is_done]

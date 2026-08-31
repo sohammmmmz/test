@@ -13,7 +13,9 @@ record of the meeting where it was decided — lives here.
 
 ## Running it
 
-Three processes: Postgres, Django, Next.js.
+Three processes: Postgres, Django, Next.js. Redis is a fourth and is optional —
+without it the cache falls back to per-process local memory and everything still
+works.
 
 ```bash
 # 1. Database
@@ -21,10 +23,12 @@ docker run -d --name pms-postgres \
   -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=pms \
   -p 5432:5432 postgres:16-alpine
 
+# 1b. Cache (optional, but run it if more than one person uses this)
+docker run -d --name pms-redis -p 6379:6379 redis:7-alpine
+
 # 2. Backend
 python3 -m venv .venv
-.venv/bin/pip install django djangorestframework django-cors-headers \
-  "psycopg[binary]" django-environ PyJWT requests
+.venv/bin/pip install -r requirements.txt
 cd backend
 ../.venv/bin/python manage.py migrate
 ../.venv/bin/python manage.py runserver 8000
@@ -59,8 +63,16 @@ token owns every write.
 Three things reach the network at install or build time and will need handling.
 
 **Python dependencies.** `openpyxl` and `et-xmlfile` are needed for the Excel
-reports. Vendor the wheels (`pip download -r requirements.txt -d wheels/`) on a
-connected machine and install with `pip install --no-index --find-links wheels/`.
+reports, and `redis` for the cache. Vendor the wheels
+(`pip download -r requirements.txt -d wheels/`) on a connected machine and
+install with `pip install --no-index --find-links wheels/`.
+
+**Redis is optional.** If there is no Redis on the target, leave `REDIS_URL`
+blank: the cache falls back to per-process local memory, every read path behaves
+identically, and the only loss is that two Gunicorn workers keep separate copies
+and separate version counters. The app also survives Redis being *configured and
+unreachable* — every cache call is treated as a miss rather than an error — so a
+Redis that goes down makes the app slow, never broken.
 
 **Fonts.** `next/font/google` downloads Bricolage Grotesque, Public Sans and
 JetBrains Mono **at build time**. A build on a machine with no route to
@@ -398,6 +410,93 @@ claiming to cover Friday would show three days of zeros and read as the team
 having stopped.
 
 ---
+
+## Why it feels fast
+
+Three separate problems, and caching only solved one of them.
+
+**The screen no longer waits for the write.** Ticking a todo used to be: send
+the request, wait, call `router.refresh()`, wait for the whole route to
+re-render from six endpoints. Two serial round trips before a tick mark moved.
+Now the screen changes on the same frame as the click and the request goes
+afterwards — `lib/actions.ts` sends it, `components/Activity.tsx` holds the
+state. Every optimistic change is a local override that is thrown away whole the
+moment fresh server props arrive, so the server's answer always wins and there
+is no reconciliation logic to get subtly wrong.
+
+**Refreshes are shared and late.** A burst of ticks used to be a burst of full
+route re-renders racing each other. `refreshSoon()` coalesces them into one,
+fired once the burst stops.
+
+**Reads are cached, and invalidated by the models rather than by the views.**
+`core/cache.py` keys every cached payload on the current version number of each
+scope it was built from; invalidating a scope increments that number and strands
+the old keys, which is one integer write no matter how many keys it covers.
+`core/invalidation.py` wires those bumps to `post_save`/`post_delete` rather than
+to the endpoints that write, because writes also happen in services, in
+management commands, in the GitLab reconcile and in cascade deletes, and every
+path somebody forgets is a screen showing yesterday's numbers with no error
+anywhere. (`bulk_create` fires no signals; the two places that use it bump by
+hand, and say so.)
+
+Measured on the overview, which is the heaviest screen in the app:
+
+| | cold | warm |
+|---|---|---|
+| `/api/dashboard`, 12 people | 51 queries | 0 |
+| `/api/projects/` | 9 queries | 0 |
+
+The cold number came down too, from 88, by grouping what used to be several
+queries per person into a fixed few — see `ensure_days` and the count
+annotations in `projects/dashboard.py`.
+
+**Opening a project no longer talks to GitLab first.** That reconcile was
+awaited during the server render, so the slowest thing in the app ran before a
+single pixel appeared *and* again on every refresh of that screen. It now runs
+from `<ReconcileOnOpen />` after the page is drawn, is throttled server-side to
+once per `RECONCILE_THROTTLE_SECONDS` per project, and only triggers a refresh
+if something actually came back changed. The Sync button sends `force` and
+always goes to GitLab, because a person who presses Sync and is told "synced"
+without a request leaving the building has been lied to.
+
+## When a write fails after you were told it worked
+
+That is the bargain of an optimistic UI, and this is how it is honoured.
+
+The failure lands in the **notification tab** at the bottom of the rail, named
+in the words the button used — "Could not close “Fix login”", not "PATCH
+/api/daily/todos/41 returned 500" — with what the server said and a **Try
+again** that replays the exact request. A retry that works marks the line as
+come good rather than deleting it, so somebody who saw the badge can find out
+what became of it.
+
+Failures are recorded in two places on purpose. The server holds them so they
+survive a reload and appear on the person's other machine; the browser holds a
+copy in `localStorage` because the most common reason a write fails is that the
+server was unreachable, in which case filing it there fails too. The local copy
+is dropped once the server has taken it, and the tray shows the union.
+
+Requests are retried automatically before anyone is told: three attempts with
+backoff, but only for the failures that could plausibly go differently — a
+network drop, a 5xx, a 429. A 403 or a 404 is the server saying the request
+itself is wrong, and sending it twice more only makes the app feel broken
+instead of honest.
+
+`retry_path` is validated on the way in and on the way out: relative, and under
+`/api/`. It is stored and later fetched by the browser, so an absolute URL there
+would be a way to make somebody's session call somewhere else.
+
+## Ticking is one click; unticking asks
+
+Reversing a tick opens a confirmation, and taking one does not. They are the
+same button in the same place, and on a list of finished lines a stray click
+otherwise silently reopens work the morning meeting has already been told about.
+Putting a dialog in front of only the reversal costs nothing on the action
+people take twenty times a day and catches the one they take by accident.
+
+It applies in all three places a tick can be reversed: a member unmarking their
+own todo, an owner reopening a closed one, and reopening a task in the plan —
+where it also reopens the work item in GitLab, which the dialog says.
 
 ## Layout
 

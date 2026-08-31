@@ -1,7 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useActivity } from "./Activity";
+import { Confirm } from "./Confirm";
 import { Thread, Tick } from "./ui";
 import { relativeDue } from "@/lib/format";
 import type { Task, Todo } from "@/lib/types";
@@ -31,58 +32,148 @@ export function TodoList({
   title: string;
   userId?: number;
 }) {
-  const router = useRouter();
-  const [, startTransition] = useTransition();
-  const [busy, setBusy] = useState<number | null>(null);
+  const { run, inFlight } = useActivity();
   const [draft, setDraft] = useState("");
-  const [adding, setAdding] = useState(false);
 
-  const refresh = () => startTransition(() => router.refresh());
+  /**
+   * The optimistic layer.
+   *
+   * Ticking a line changes it here first and sends the write afterwards, so the
+   * tick mark moves on the same frame as the click rather than two round trips
+   * later. These overrides are thrown away wholesale whenever a fresh `todos`
+   * prop arrives — which is exactly when the server has re-rendered the route
+   * and its answer supersedes the guess, whether the write succeeded or not.
+   */
+  const [patched, setPatched] = useState<Record<number, Partial<Todo>>>({});
+  const [dropped, setDropped] = useState<number[]>([]);
+  const [provisional, setProvisional] = useState<Todo[]>([]);
+  const [undoing, setUndoing] = useState<Todo | null>(null);
 
-  async function toggle(todo: Todo) {
-    setBusy(todo.id);
+  useEffect(() => {
+    setPatched({});
+    setDropped([]);
+    setProvisional([]);
+  }, [todos]);
+
+  const rows = useMemo(() => {
+    const merged = todos
+      .filter((t) => !dropped.includes(t.id))
+      .map((t) => (patched[t.id] ? { ...t, ...patched[t.id] } : t));
+    return [...merged, ...provisional];
+  }, [todos, patched, dropped, provisional]);
+
+  /**
+   * Ticking is immediate; unticking asks.
+   *
+   * The two are the same button, and on a list of finished lines a misplaced
+   * click reopens work that has already been reported as done in the morning
+   * meeting. Putting a dialog in front of the reversal — and only the reversal
+   * — costs nothing on the action people take twenty times a day and catches
+   * the one they take by accident.
+   */
+  function requestToggle(todo: Todo) {
+    const reversing = canClose ? todo.status === "closed" : todo.status === "claimed";
+    if (reversing) setUndoing(todo);
+    else toggle(todo);
+  }
+
+  function toggle(todo: Todo) {
     // An owner closes; everybody else claims. The backend enforces this either
     // way — sending the wrong one is folded down rather than refused — but
     // saying it plainly here keeps the button honest about what it does.
-    const body = canClose
-      ? { done: todo.status !== "closed" }
-      : { claimed: todo.status === "open" };
-    await fetch(`/api/proxy/api/daily/todos/${todo.id}`, {
+    const closing = canClose && todo.status !== "closed";
+    const claiming = !canClose && todo.status === "open";
+    const body = canClose ? { done: closing } : { claimed: claiming };
+
+    const next: Partial<Todo> = canClose
+      ? closing
+        ? { status: "closed", is_done: true, is_claimed: false }
+        : { status: "open", is_done: false, is_claimed: false }
+      : claiming
+        ? { status: "claimed", is_claimed: true, is_done: false }
+        : { status: "open", is_claimed: false, is_done: false };
+
+    setPatched((all) => ({ ...all, [todo.id]: { ...all[todo.id], ...next } }));
+
+    const verb = canClose
+      ? closing ? "Closed" : "Reopened"
+      : claiming ? "Marked done" : "Unmarked";
+    run({
+      key: `todo:${todo.id}:tick`,
+      pending: `${verb} “${todo.title}”`,
+      done: `${verb} “${todo.title}”`,
+      failed: `Could not update “${todo.title}”`,
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      path: `/api/daily/todos/${todo.id}`,
+      body,
     });
-    setBusy(null);
-    refresh();
   }
 
-  async function remove(todo: Todo) {
-    setBusy(todo.id);
-    await fetch(`/api/proxy/api/daily/todos/${todo.id}`, { method: "DELETE" });
-    setBusy(null);
-    refresh();
+  function remove(todo: Todo) {
+    setDropped((all) => [...all, todo.id]);
+    run({
+      key: `todo:${todo.id}:remove`,
+      pending: `Removing “${todo.title}”`,
+      done: `Removed “${todo.title}”`,
+      failed: `Could not remove “${todo.title}”`,
+      method: "DELETE",
+      path: `/api/daily/todos/${todo.id}`,
+    });
   }
 
-  async function add(title: string, taskId?: number) {
-    if (!title.trim()) return;
-    setAdding(true);
-    await fetch("/api/proxy/api/daily/todos", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: title.trim(), date, user_id: userId ?? null, task_id: taskId ?? null,
-      }),
-    });
+  function add(title: string, taskId?: number) {
+    const text = title.trim();
+    if (!text) return;
+
+    // A stand-in row so the list grows on the same frame as the Enter key. The
+    // negative id cannot collide with a real one, and the whole row is replaced
+    // by the server's version on the next refresh.
+    setProvisional((all) => [...all, {
+      id: -Date.now(),
+      title: text,
+      status: "open",
+      is_done: false,
+      is_claimed: false,
+      is_stale: false,
+      carry_count: 0,
+      source: "manual",
+      task: null,
+      claimed_by_name: null,
+      closed_by_name: null,
+    } as unknown as Todo]);
     setDraft("");
-    setAdding(false);
-    refresh();
+
+    run({
+      key: `todo:add:${text}:${taskId ?? ""}`,
+      pending: `Adding “${text}”`,
+      done: `Added “${text}”`,
+      failed: `Could not add “${text}”`,
+      method: "POST",
+      path: "/api/daily/todos",
+      body: { title: text, date, user_id: userId ?? null, task_id: taskId ?? null },
+    });
   }
 
-  const done = todos.filter((t) => t.is_done).length;
-  const waiting = todos.filter((t) => t.is_claimed).length;
+  const done = rows.filter((t) => t.is_done).length;
+  const waiting = rows.filter((t) => t.is_claimed).length;
 
   return (
     <div className="stack gap-4">
+      {undoing && (
+        <Confirm
+          title={canClose ? "Reopen this?" : "Mark this as not done?"}
+          body={
+            canClose
+              ? `“${undoing.title}” has been closed. Reopening puts it back on the list as unfinished work.`
+              : `“${undoing.title}” is marked done and waiting to be closed in the morning meeting. This takes that back.`
+          }
+          confirmLabel={canClose ? "Reopen it" : "Mark as not done"}
+          tone="attention"
+          onCancel={() => setUndoing(null)}
+          onConfirm={() => { toggle(undoing); setUndoing(null); }}
+        />
+      )}
+
       <div className="panel rise" style={{ overflow: "hidden" }}>
         <div className="panel-head">
           <h2 style={{ fontSize: "1.05rem" }}>{title}</h2>
@@ -93,13 +184,13 @@ export function TodoList({
               </span>
             )}
             <span className="mono faint" style={{ fontSize: ".78rem" }}>
-              {done}/{todos.length}
+              {done}/{rows.length}
             </span>
           </span>
         </div>
 
         <div className="stack">
-          {todos.map((todo) => {
+          {rows.map((todo) => {
             const claimed = todo.status === "claimed";
             const closed = todo.status === "closed";
             const label = closed
@@ -114,8 +205,7 @@ export function TodoList({
                   <button
                     className={`check ${claimed ? "check-claimed" : ""}`}
                     data-done={closed}
-                    disabled={busy === todo.id}
-                    onClick={() => toggle(todo)}
+                    onClick={() => requestToggle(todo)}
                     aria-label={label}
                   >
                     <Tick />
@@ -159,7 +249,7 @@ export function TodoList({
 
                 {canTick && !closed && (
                   <button className="btn btn-ghost btn-sm" onClick={() => remove(todo)}
-                          disabled={busy === todo.id} aria-label={`Remove ${todo.title}`}>
+                          aria-label={`Remove ${todo.title}`}>
                     ×
                   </button>
                 )}
@@ -167,7 +257,7 @@ export function TodoList({
             );
           })}
 
-          {todos.length === 0 && (
+          {rows.length === 0 && (
             <p className="faint" style={{ padding: "22px 18px", fontSize: ".86rem" }}>
               Nothing here yet. Add something below, or pick up one of the suggestions.
             </p>
@@ -186,8 +276,7 @@ export function TodoList({
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Add something to today — it does not have to be a GitLab task"
             />
-            <button className="btn btn-primary btn-sm" disabled={adding || !draft.trim()}>
-              {adding && <span className="spin" />}
+            <button className="btn btn-primary btn-sm" disabled={!draft.trim()}>
               Add
             </button>
           </form>
@@ -218,8 +307,7 @@ export function TodoList({
                   </span>
                 </span>
                 {canAdd && (
-                  <button className="btn btn-sm" onClick={() => add(task.title, task.id)}
-                          disabled={adding}>
+                  <button className="btn btn-sm" onClick={() => add(task.title, task.id)}>
                     Add to today
                   </button>
                 )}

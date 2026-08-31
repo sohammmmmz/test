@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { DeleteProject } from "@/components/DeleteProject";
 import { Documents } from "@/components/Documents";
 import { PhasePicker } from "@/components/PhasePicker";
+import { ReconcileOnOpen } from "@/components/ReconcileOnOpen";
 import { Plan } from "@/components/Plan";
 import { ProjectMembers } from "@/components/ProjectMembers";
 import { Avatar, Empty, Meter } from "@/components/ui";
@@ -36,10 +37,10 @@ export default async function ProjectPage({
     );
   }
 
-  // GitLab is the source of truth, so re-read it on open. Somebody who closed
-  // an issue in GitLab's own UI must not have it silently reopened here.
-  await api.post(`/api/planning/reconcile/${id}`, {}).catch(() => null);
-
+  // GitLab is still the source of truth, and opening a project still re-reads
+  // it — but from <ReconcileOnOpen /> after this renders, not before. Waiting on
+  // a GitLab round trip to draw a screen we can already draw from the database
+  // was the single slowest thing in the app.
   const [milestones, teams] = await Promise.all([
     api.get<Milestone[]>(`/api/planning/milestones/?project=${id}`).catch(() => []),
     user.is_owner ? api.get<Team[]>("/api/teams/").catch(() => []) : Promise.resolve([]),
@@ -50,6 +51,7 @@ export default async function ProjectPage({
 
   return (
     <>
+      <ReconcileOnOpen projectId={id} />
       <header className="page-head dawn">
         <div className="stack gap-3">
           <Link href="/projects" className="eyebrow" style={{ color: "var(--brand)" }}>

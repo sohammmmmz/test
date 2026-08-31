@@ -12,8 +12,9 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from accounts.serializers import UserSerializer
-from daily.models import Todo
-from daily.services import ensure_day
+from core.cache import SCOPES
+from core.http import cached_read
+from daily.services import ensure_days
 from planning.models import Milestone, Task
 from teams.models import TeamMembership
 
@@ -46,7 +47,25 @@ def _people_for(user):
 
 
 @api_view(["GET"])
+@cached_read(
+    "dashboard",
+    # Genuinely everything: this screen is the join of projects, their plans,
+    # today's lists and who is on which team. A narrower set of scopes here
+    # would only mean showing one of those stale.
+    (SCOPES.PROJECTS, SCOPES.PLAN, SCOPES.TODOS, SCOPES.TEAMS, SCOPES.PEOPLE),
+    "CACHE_TTL_DASHBOARD",
+)
 def dashboard(request):
+    """The overview.
+
+    Note the ordering with the cache around it: ``ensure_day`` below *writes*
+    the day's todos the first time it is asked for, which bumps the todo scope
+    mid-build. The key was computed before the build started, so that first
+    response is stored somewhere already unreachable and the next request builds
+    it again. That is correct rather than clever — one wasted build per person
+    per day, and never a list that is missing lines someone was about to be
+    shown.
+    """
     day = timezone.localdate()
     projects = list(
         _visible_projects(request.user)
@@ -71,25 +90,51 @@ def dashboard(request):
     # Workload, read from what people are actually holding rather than from a
     # plan somebody typed once.
     people = _people_for(request.user)
+    person_ids = [p.id for p in people]
+
+    # Grouped, rather than one set of queries per person. Rendering this screen
+    # for a team of twelve used to mean around sixty round trips to Postgres —
+    # three counts and a todo lookup each — and it grew with the team, which is
+    # exactly the wrong direction for the screen a lead opens every morning.
+    task_counts = {
+        row["assignee_id"]: row
+        for row in Task.objects.filter(
+            assignee_id__in=person_ids, state=Task.State.OPEN
+        )
+        .values("assignee_id")
+        .annotate(
+            open_tasks=Count("id"),
+            overdue_tasks=Count("id", filter=Q(due_date__lt=day)),
+        )
+    }
+    project_counts = {
+        row["members__user_id"]: row["n"]
+        for row in Project.objects.filter(members__user_id__in=person_ids)
+        .values("members__user_id")
+        .annotate(n=Count("id", distinct=True))
+    }
+
+    days = ensure_days(people, day)
+
     workload = []
     for person in people:
-        todos = ensure_day(person, day)
+        todos = days[person.id]
         # Pending means nobody has even said it is finished. A line the person
         # has ticked and the owner has not yet closed is waiting on the review,
         # and counting it against them here would read as their backlog.
         pending = [t for t in todos if t.status == "open"]
         awaiting = [t for t in todos if t.is_claimed]
-        open_tasks = Task.objects.filter(assignee=person, state=Task.State.OPEN)
+        counts = task_counts.get(person.id, {})
         workload.append({
             "user": UserSerializer(person).data,
             "is_you": person.id == request.user.id,
-            "open_tasks": open_tasks.count(),
-            "overdue_tasks": open_tasks.filter(due_date__lt=day).count(),
+            "open_tasks": counts.get("open_tasks", 0),
+            "overdue_tasks": counts.get("overdue_tasks", 0),
             "todos_total": len(todos),
             "todos_pending": len(pending),
             "todos_awaiting": len(awaiting),
             "todos_stale": sum(1 for t in pending if t.is_stale),
-            "project_count": Project.objects.filter(members__user=person).distinct().count(),
+            "project_count": project_counts.get(person.id, 0),
         })
     # Busiest first: the person about to drop something should not be
     # somewhere down an alphabetical list.

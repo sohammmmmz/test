@@ -16,6 +16,9 @@ from gitlab_api.gateway import service_client
 from teams.models import Team
 
 from .documents import DocumentUploadError, upload_document
+from core.cache import SCOPES
+from core.http import CachedListMixin
+
 from .models import GitLabRepo, Project, ProjectStatus
 from .serializers import (
     DocumentSerializer,
@@ -126,10 +129,14 @@ def repo_branches(request):
     })
 
 
-class ProjectViewSet(viewsets.ModelViewSet):
+class ProjectViewSet(CachedListMixin, viewsets.ModelViewSet):
     """Owners manage their projects; members read the ones they are on."""
 
     serializer_class = ProjectDetailSerializer
+    # The list carries each project's progress and readiness, both computed
+    # from its milestones, so the plan scope invalidates it as surely as the
+    # project scope does.
+    cache_scopes = (SCOPES.PROJECTS, SCOPES.PLAN)
 
     def get_permissions(self):
         if self.action in ("list", "retrieve"):

@@ -17,6 +17,7 @@ urlpatterns = [
     path("api/projects/", include("projects.urls")),
     path("api/planning/", include("planning.urls")),
     path("api/daily/", include("daily.urls")),
+    path("api/notifications/", include("notifications.urls")),
     path("api/reports/", include("reports.urls")),
     path("api/dashboard", dashboard, name="dashboard"),
 ]

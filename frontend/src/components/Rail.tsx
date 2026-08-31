@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Avatar } from "./ui";
+import { NotificationTray } from "./NotificationTray";
 import { ThemeToggle } from "./ThemeToggle";
 import type { User } from "@/lib/types";
 
@@ -59,6 +60,7 @@ export function Rail({ user }: { user: User }) {
       </nav>
 
       <div className="stack gap-3" style={{ padding: 16, borderTop: "1px solid var(--line)" }}>
+        <NotificationTray />
         <ThemeToggle />
         <div className="row gap-2 center">
           <Avatar name={user.display_name} url={user.gitlab_avatar_url || undefined} />

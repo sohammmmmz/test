@@ -10,6 +10,9 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from core.cache import SCOPES
+from core.http import cached_read
+
 from accounts.permissions import IsOwner
 from accounts.serializers import UserSerializer
 from planning.models import Task
@@ -57,6 +60,7 @@ def _may_see(actor, subject) -> bool:
 
 
 @api_view(["GET"])
+@cached_read("my-day", (SCOPES.TODOS, SCOPES.PLAN, SCOPES.PEOPLE), "CACHE_TTL_DAY")
 def my_day(request):
     """Today's list, the suggestions behind it, and the tasks it came from."""
     day = _parse_date(request)
@@ -72,6 +76,7 @@ def my_day(request):
 
 
 @api_view(["GET"])
+@cached_read("person-day", (SCOPES.TODOS, SCOPES.PLAN, SCOPES.PEOPLE), "CACHE_TTL_DAY")
 def person_day(request, user_id: int):
     """Somebody else's day. Owners only, and only for their own people."""
     subject = get_object_or_404(User, pk=user_id)
@@ -91,6 +96,7 @@ def person_day(request, user_id: int):
 
 
 @api_view(["GET"])
+@cached_read("todo-history", (SCOPES.TODOS, SCOPES.PEOPLE), "CACHE_TTL_LIST")
 def todo_history(request, user_id: int):
     """What somebody's list said, day by day.
 
@@ -253,6 +259,7 @@ def todo_detail(request, todo_id: int):
 
 
 @api_view(["GET"])
+@cached_read("my-alerts", (SCOPES.TODOS, SCOPES.PLAN), "CACHE_TTL_DAY")
 def my_alerts(request):
     """What the signed-in person needs to deal with themselves.
 
@@ -290,6 +297,7 @@ def my_alerts(request):
 
 
 @api_view(["GET"])
+@cached_read("meeting", (SCOPES.TODOS, SCOPES.TEAMS, SCOPES.PLAN, SCOPES.PEOPLE), "CACHE_TTL_DAY")
 def meeting_today(request, team_id: int):
     """The board the meeting screen opens on."""
     if not request.user.is_owner:

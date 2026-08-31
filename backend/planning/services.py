@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import logging
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
+from core.cache import claim, release
 from gitlab_api.exceptions import GitLabError, GitLabNotFound
 from gitlab_api.gateway import service_client
 
@@ -243,15 +245,23 @@ def _complete_todos_for(task: Task) -> int:
 # ---------------------------------------------------------------------------
 
 
-def reconcile_project(project) -> dict:
+def reconcile_project(project, *, force: bool = False) -> dict:
     """Re-read milestones and tasks from GitLab into this database.
 
-    Run when a project is opened. GitLab is authoritative: a task closed in its
-    UI closes here, and the todo pointing at it is ticked off too.
+    GitLab is authoritative: a task closed in its UI closes here, and the todo
+    pointing at it is ticked off too.
 
-    Only work items of type *task* are read. Issues somebody opened by hand are
-    left entirely alone — they are not planning artefacts and this tool has no
-    business rewriting them.
+    Everything filed under a milestone this project can see is read, whatever
+    work item type it is. The milestone is the gate, not the type — see
+    ``gitlab_api.client.list_tasks``.
+
+    **Throttled unless forced.** This is two or more HTTP round trips to a
+    server that may be across a VPN, and it used to run on every render of the
+    project screen — which meant every small edit on that screen paid for it
+    twice, once for the write and once for the re-render. Opening a project now
+    asks for a reconcile at most once per ``RECONCILE_THROTTLE_SECONDS``; the
+    Sync button passes ``force=True`` and always runs, because a person who
+    presses Sync is entitled to know it actually synced.
     """
     repo = getattr(project, "repo", None)
     blank = {"milestones": 0, "tasks": 0, "todos_completed": 0, "read": 0,
@@ -259,6 +269,10 @@ def reconcile_project(project) -> dict:
              "unmatched_milestones": [], "types": {}}
     if repo is None:
         return blank
+
+    if not force and not claim(f"reconcile:{project.pk}", settings.RECONCILE_THROTTLE_SECONDS):
+        return {**blank, "skipped": True,
+                "detail": "Reconciled moments ago; showing what was read then."}
 
     try:
         # service_client() rather than _client(): this is already inside the
@@ -270,6 +284,10 @@ def reconcile_project(project) -> dict:
         milestone_payloads = client.list_milestones(repo.gitlab_project_id)
         issue_payloads = client.list_tasks(repo.gitlab_project_id)
     except GitLabError as exc:
+        # Give the window back. A reconcile that failed should be retryable
+        # straight away, not held off for another minute and a half by a claim
+        # that bought nothing.
+        release(f"reconcile:{project.pk}")
         logger.warning("Could not reconcile %s: %s", project.name, exc)
         return {**blank, "error": str(exc)}
 

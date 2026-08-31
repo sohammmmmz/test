@@ -1360,3 +1360,183 @@ table.data tbody tr:hover { background: var(--sunk); }
   .mtile, .ring .ring-fill { transition: none; }
   .mtile:hover { transform: none; }
 }
+
+/* ==========================================================================
+   Confirmation and notification
+   --------------------------------------------------------------------------
+   Both surfaces are portalled to the body, so neither can rely on a parent for
+   position. The toast sits bottom-centre where it is visible without covering
+   the thing that was just acted on; the tray opens upwards from the rail,
+   because that is where its button is and a panel that opens away from its
+   trigger reads as belonging to something else.
+   ========================================================================== */
+
+.toasts {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  font-size: .8rem;
+  font-weight: 500;
+  color: var(--ink);
+  animation: toast-in .22s cubic-bezier(.2, .9, .3, 1);
+}
+
+.toast[data-state="failed"] {
+  border-color: color-mix(in srgb, var(--attention) 45%, var(--line));
+  background: var(--attention-wash);
+  color: var(--ink);
+}
+
+.toast-mark {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--done-wash);
+  color: var(--done);
+  font-size: .7rem;
+  font-weight: 700;
+  flex: none;
+}
+.toast[data-state="failed"] .toast-mark { background: var(--attention); color: #fff; }
+
+/* The only admission that the server has not answered yet. Small on purpose:
+   the action is already shown as done, and this says "still settling", not
+   "still waiting". */
+.toast-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  animation: toast-pulse 1s ease-in-out infinite;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes toast-pulse {
+  0%, 100% { opacity: .25; }
+  50%      { opacity: 1; }
+}
+
+/* -- the tray button, in the rail ----------------------------------------- */
+
+.tray-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.tray-button:hover,
+.tray-button[data-open="true"] {
+  background: var(--brand-wash);
+  color: var(--ink);
+}
+
+.tray-badge {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--attention);
+  color: #fff;
+  font-size: .65rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* -- the panel ------------------------------------------------------------- */
+
+.tray-panel {
+  position: fixed;
+  z-index: 160;
+  width: min(370px, calc(100vw - 32px));
+  max-height: min(520px, 70vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: toast-in .16s ease-out;
+}
+
+.tray-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+  font-weight: 600;
+}
+
+.tray-empty {
+  padding: 20px 16px;
+  margin: 0;
+  font-size: .76rem;
+  line-height: 1.55;
+  color: var(--ink-faint);
+}
+
+.tray-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.tray-item {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  /* The stripe carries the state, so the row itself stays quiet. A tray of
+     shouting red rows is one nobody opens twice. */
+  border-left: 3px solid var(--attention);
+}
+.tray-item:last-child { border-bottom: none; }
+.tray-item[data-kind="done"] { border-left-color: var(--done); opacity: .72; }
+.tray-item[data-kind="info"] { border-left-color: var(--line-firm); }
+
+.tray-title { font-size: .8rem; font-weight: 600; line-height: 1.35; }
+.tray-body  { font-size: .74rem; color: var(--ink-soft); line-height: 1.45; }
+.tray-meta  { font-size: .68rem; color: var(--ink-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast, .tray-panel { animation: none; }
+  .toast-dot { animation: none; opacity: .6; }
+}

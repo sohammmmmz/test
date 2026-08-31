@@ -46,7 +46,10 @@ export function SyncProjects({ projects }: { projects: Project[] }) {
       const res = await fetch(`/api/proxy/api/planning/reconcile/${project.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        // Forced: the background reconcile a project page fires on open is
+        // throttled, and Sync must never report "synced" without a request
+        // actually having gone to GitLab.
+        body: JSON.stringify({ force: true }),
       });
       if (!res.ok) return { milestones: 0, tasks: 0, todos_completed: 0, error: "refused" };
       return await res.json();

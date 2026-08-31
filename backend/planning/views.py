@@ -7,6 +7,8 @@ from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
 from accounts.permissions import IsOwner
+from core.cache import SCOPES
+from core.http import CachedListMixin
 from projects.models import Project
 
 from .models import Milestone, Task
@@ -39,8 +41,12 @@ def _visible_projects(user):
     return Project.objects.filter(members__user=user).distinct()
 
 
-class MilestoneViewSet(viewsets.ModelViewSet):
+class MilestoneViewSet(CachedListMixin, viewsets.ModelViewSet):
     serializer_class = MilestoneSerializer
+    # Every milestone is serialized with its tasks nested, so this is the
+    # single most expensive read in the app and the one worth caching most.
+    cache_scopes = (SCOPES.PLAN, SCOPES.PROJECTS, SCOPES.PEOPLE)
+    cache_ttl_setting = "CACHE_TTL_PLAN"
 
     def get_permissions(self):
         if self.action in ("list", "retrieve"):
@@ -107,7 +113,7 @@ class MilestoneViewSet(viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class TaskViewSet(viewsets.ModelViewSet):
+class TaskViewSet(CachedListMixin, viewsets.ModelViewSet):
     """Read for everyone on the project; write for owners and the assignee.
 
     An assignee closing their own task is the single most common action in the
@@ -115,6 +121,8 @@ class TaskViewSet(viewsets.ModelViewSet):
     """
 
     serializer_class = TaskSerializer
+    cache_scopes = (SCOPES.PLAN, SCOPES.PEOPLE)
+    cache_ttl_setting = "CACHE_TTL_PLAN"
 
     def get_queryset(self):
         qs = (
@@ -217,12 +225,17 @@ class TaskViewSet(viewsets.ModelViewSet):
 
 @api_view(["POST"])
 def reconcile(request, project_id: int):
-    """Pull milestones and issues back from GitLab.
+    """Pull milestones and work items back from GitLab.
 
-    Called when a project is opened, so an issue somebody closed in GitLab's own
-    UI is reflected here — and its todo ticked off — rather than overwritten.
+    Two callers, and they want different things. Opening a project fires this in
+    the background and does not wait for it, so it is throttled — the screen is
+    already rendered from what is stored, and a refresh a moment later picks up
+    anything new. The Sync button sends ``force`` and always goes to GitLab,
+    because a person who presses Sync and is told "synced" without a request
+    leaving the building has been lied to.
     """
     project = _visible_projects(request.user).filter(pk=project_id).first()
     if project is None:
         return Response({"detail": "No such project."}, status=status.HTTP_404_NOT_FOUND)
-    return Response(reconcile_project(project))
+    force = str(request.data.get("force", "")).lower() in ("1", "true", "yes")
+    return Response(reconcile_project(project, force=force))

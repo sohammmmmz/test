@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useActivity } from "./Activity";
+import { Confirm } from "./Confirm";
 import { Avatar, Thread, Tick } from "./ui";
 import { longDate, plural, relativeDue, shortDate, weekday } from "@/lib/format";
 import type { MeetingBoard, MeetingRow, Team, Todo } from "@/lib/types";
@@ -27,35 +29,62 @@ export function MorningMeeting({ board, teams, activeTeam }: {
   activeTeam: Team;
 }) {
   const router = useRouter();
-  const [, startTransition] = useTransition();
-  const [busy, setBusy] = useState(false);
+  const { run, refreshSoon, inFlight } = useActivity();
   const [minimised, setMinimised] = useState(false);
 
   const meeting = board.meeting;
   const rows = board.rows;
   const running = meeting.status === "in_progress";
   const finished = meeting.status === "completed";
-  const index = Math.min(meeting.current_index, Math.max(rows.length - 1, 0));
+  /**
+   * Whose turn it is, moved locally before the server is told.
+   *
+   * The round is run in front of the whole team, and a name that changes half a
+   * second after the arrow key is pressed reads as the app struggling. Cleared
+   * when a new board arrives, which is the server's own answer arriving.
+   */
+  const [step, setStep] = useState<number | null>(null);
+  useEffect(() => setStep(null), [board]);
+
+  const serverIndex = Math.min(meeting.current_index, Math.max(rows.length - 1, 0));
+  const index = step === null ? serverIndex : Math.min(Math.max(step, 0), Math.max(rows.length - 1, 0));
   const current = rows[index];
 
-  const refresh = useCallback(
-    () => startTransition(() => router.refresh()),
-    [router],
+  const refresh = refreshSoon;
+
+  /**
+   * Moving the meeting along.
+   *
+   * Advancing to the next person is the action taken most often in this
+   * product and it used to wait on a write and then a full route re-render
+   * before the name on screen changed — a stutter in front of six people
+   * watching. It is sent in the background now; the failure, if there is one,
+   * arrives in the tray naming the step that did not take.
+   */
+  const act = useCallback(
+    (action: string, extra: Record<string, unknown> = {}) => {
+      if (action === "advance") {
+        const to = typeof extra.index === "number" ? extra.index : null;
+        setStep((at) => (to !== null ? to : (at ?? serverIndex) + 1));
+      }
+      run({
+        key: `meeting:${meeting.id}:${action}`,
+        pending: LABELS[action]?.pending ?? "Working",
+        done: LABELS[action]?.done ?? "Done",
+        failed: LABELS[action]?.failed ?? "That step did not save",
+        method: "POST",
+        path: `/api/daily/meeting/action/${meeting.id}`,
+        body: { action, ...extra },
+      });
+    },
+    [meeting.id, run, serverIndex],
   );
 
-  const act = useCallback(
-    async (action: string, extra: Record<string, unknown> = {}) => {
-      setBusy(true);
-      await fetch(`/api/proxy/api/daily/meeting/action/${meeting.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, ...extra }),
-      });
-      setBusy(false);
-      refresh();
-    },
-    [meeting.id, refresh],
-  );
+  // Only the two steps that genuinely change the shape of the screen block
+  // their own button. Everything else on the round is optimistic, so a disabled
+  // Next while a note saves in the background would be a stutter for nothing.
+  const busy = inFlight.has(`meeting:${meeting.id}:start`)
+    || inFlight.has(`meeting:${meeting.id}:complete`);
 
   const totalPending = rows.reduce((n, r) => n + r.pending.length, 0);
   const totalClaimed = rows.reduce((n, r) => n + r.claimed.length, 0);
@@ -158,7 +187,7 @@ function FullScreenRound({
   meetingId: number;
   teamName: string;
   busy: boolean;
-  act: (action: string, extra?: Record<string, unknown>) => Promise<void>;
+  act: (action: string, extra?: Record<string, unknown>) => void;
   onChanged: () => void;
   onMinimise: () => void;
 }) {
@@ -295,7 +324,7 @@ function FullScreenRound({
       </div>
 
       <div className="fs-bottom">
-        <button className="btn" disabled={busy || index === 0}
+        <button className="btn" disabled={index === 0}
                 onClick={() => act("advance", { index: index - 1 })}>
           ← Back
         </button>
@@ -309,9 +338,7 @@ function FullScreenRound({
             Publish the day
           </button>
         ) : (
-          <button className="btn btn-primary" disabled={busy}
-                  onClick={() => act("advance")}>
-            {busy && <span className="spin" />}
+          <button className="btn btn-primary" onClick={() => act("advance")}>
             Next person →
           </button>
         )}
@@ -407,6 +434,23 @@ function LastMeetingPanel({ row }: { row: MeetingRow }) {
   );
 }
 
+/**
+ * What each meeting step is called, in the words the buttons use.
+ *
+ * Kept here rather than at the call sites so a failure notification says
+ * "Could not publish the day" — the thing the person pressed — instead of
+ * naming the action verb the API happens to use.
+ */
+const LABELS: Record<string, { pending: string; done: string; failed: string }> = {
+  start: { pending: "Starting the round", done: "Round started",
+           failed: "Could not start the round" },
+  advance: { pending: "Moving on", done: "Moved on",
+             failed: "The round did not move on" },
+  complete: { pending: "Publishing the day", done: "The day is published",
+              failed: "Could not publish the day" },
+  record: { pending: "Saving", done: "Saved", failed: "Could not save that note" },
+};
+
 /** The person whose turn it is, at full size. */
 function TurnCard({ row, date, meetingId, onChanged }: {
   row: MeetingRow;
@@ -414,61 +458,127 @@ function TurnCard({ row, date, meetingId, onChanged }: {
   meetingId: number;
   onChanged: () => void;
 }) {
+  const router = useRouter();
+  const { run, refreshSoon, inFlight } = useActivity();
   const [draft, setDraft] = useState("");
   const [blockers, setBlockers] = useState(row.note?.blockers ?? "");
-  const [busy, setBusy] = useState(false);
+  const [reopening, setReopening] = useState<Todo | null>(null);
 
-  async function patch(id: number, body: Record<string, unknown>) {
-    setBusy(true);
-    await fetch(`/api/proxy/api/daily/todos/${id}`, {
+  /**
+   * Where each todo has been moved to but the server has not confirmed it.
+   *
+   * The three lists on this screen — waiting on you, still open, closed today —
+   * are one list of todos bucketed by status, so an optimistic move is just an
+   * overridden status and a re-bucket. Closing all of somebody's claimed work is
+   * one click and N requests; this is what lets all N rows move at once instead
+   * of trickling in as each one lands.
+   */
+  const [moved, setMoved] = useState<Record<number, Todo["status"]>>({});
+  const [extra, setExtra] = useState<Todo[]>([]);
+  useEffect(() => { setMoved({}); setExtra([]); }, [row]);
+
+  const buckets = useMemo(() => {
+    const all = [...row.claimed, ...row.pending, ...row.done, ...extra].map((todo) =>
+      moved[todo.id]
+        ? { ...todo, status: moved[todo.id],
+            is_done: moved[todo.id] === "closed",
+            is_claimed: moved[todo.id] === "claimed" }
+        : todo);
+    return {
+      claimed: all.filter((t) => t.status === "claimed"),
+      pending: all.filter((t) => t.status === "open"),
+      done: all.filter((t) => t.status === "closed"),
+    };
+  }, [row, moved, extra]);
+
+  function move(todo: Todo, status: Todo["status"], body: Record<string, unknown>,
+                done: string, failed: string) {
+    setMoved((all) => ({ ...all, [todo.id]: status }));
+    run({
+      key: `todo:${todo.id}:tick`,
+      pending: done,
+      done,
+      failed,
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      path: `/api/daily/todos/${todo.id}`,
+      body,
     });
-    setBusy(false);
-    onChanged();
   }
 
-  async function addTodo(title: string, taskId?: number) {
-    if (!title.trim()) return;
-    setBusy(true);
-    await fetch("/api/proxy/api/daily/todos", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: title.trim(), date, user_id: row.user.id, task_id: taskId ?? null,
-      }),
-    });
+  const close = (todo: Todo) =>
+    move(todo, "closed", { done: true },
+         `Closed “${todo.title}”`, `Could not close “${todo.title}”`);
+
+  const reject = (todo: Todo) =>
+    move(todo, "open", { claimed: false },
+         `Put “${todo.title}” back on the list`, `Could not reopen “${todo.title}”`);
+
+  const reopen = (todo: Todo) =>
+    move(todo, "open", { done: false },
+         `Reopened “${todo.title}”`, `Could not reopen “${todo.title}”`);
+
+  function closeAllClaimed() {
+    const batch = buckets.claimed;
+    if (batch.length === 0) return;
+    // Every one is its own request, and every one can fail on its own — so each
+    // gets its own notification naming the line rather than one "some of that
+    // did not work" that nobody can act on.
+    batch.forEach(close);
+  }
+
+  function addTodo(title: string, taskId?: number) {
+    const text = title.trim();
+    if (!text) return;
+    setExtra((all) => [...all, {
+      id: -Date.now() - all.length,
+      title: text,
+      status: "open",
+      is_done: false,
+      is_claimed: false,
+      is_stale: false,
+      carry_count: 0,
+      source: "meeting",
+      task: null,
+      claimed_by_name: null,
+      closed_by_name: null,
+    } as unknown as Todo]);
     setDraft("");
-    setBusy(false);
-    onChanged();
-  }
-
-  async function closeAllClaimed() {
-    setBusy(true);
-    await Promise.all(row.claimed.map((todo) =>
-      fetch(`/api/proxy/api/daily/todos/${todo.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ done: true }),
-      })));
-    setBusy(false);
-    onChanged();
-  }
-
-  async function saveNote() {
-    setBusy(true);
-    await fetch(`/api/proxy/api/daily/meeting/action/${meetingId}`, {
+    run({
+      key: `todo:add:${row.user.id}:${text}`,
+      pending: `Adding “${text}”`,
+      done: `Added “${text}” for ${row.user.display_name}`,
+      failed: `Could not add “${text}” for ${row.user.display_name}`,
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "record", user_id: row.user.id, blockers }),
+      path: "/api/daily/todos",
+      body: { title: text, date, user_id: row.user.id, task_id: taskId ?? null },
     });
-    setBusy(false);
-    onChanged();
+  }
+
+  function saveNote() {
+    run({
+      key: `meeting:${meetingId}:note:${row.user.id}`,
+      pending: "Saving the note",
+      done: `Noted for ${row.user.display_name}`,
+      failed: `Could not save the note for ${row.user.display_name}`,
+      method: "POST",
+      path: `/api/daily/meeting/action/${meetingId}`,
+      body: { action: "record", user_id: row.user.id, blockers },
+    });
   }
 
   return (
     <div className="stack gap-4" style={{ maxWidth: 760, margin: "0 auto" }}>
+      {reopening && (
+        <Confirm
+          title="Reopen this?"
+          body={`“${reopening.title}” was closed today. Reopening puts it back on ${row.user.display_name}'s list as unfinished.`}
+          confirmLabel="Reopen it"
+          tone="attention"
+          onCancel={() => setReopening(null)}
+          onConfirm={() => { reopen(reopening); setReopening(null); }}
+        />
+      )}
+
       <div className="row gap-4 center wrap">
         <Avatar name={row.user.display_name} large
                 url={row.user.gitlab_avatar_url || undefined} />
@@ -501,29 +611,28 @@ function TurnCard({ row, date, meetingId, onChanged }: {
 
       {/* Waiting on the owner. First, because it is the only thing on this
           screen that cannot be settled anywhere else. */}
-      {row.claimed.length > 0 && (
+      {buckets.claimed.length > 0 && (
         <section className="panel" style={{ overflow: "hidden",
                                             borderColor: "var(--attention)" }}>
           <div className="panel-head" style={{ borderColor: "var(--line)" }}>
             <div className="stack">
               <h2 style={{ fontSize: "1rem" }}>
-                {row.claimed.length} marked done, waiting on you
+                {buckets.claimed.length} marked done, waiting on you
               </h2>
               <span className="faint" style={{ fontSize: ".77rem" }}>
                 {row.user.display_name} ticked these off. Closing them is yours.
               </span>
             </div>
-            <button className="btn btn-primary btn-sm" disabled={busy}
-                    onClick={closeAllClaimed}>
-              {busy && <span className="spin" />}
+            <button className="btn btn-primary btn-sm" onClick={closeAllClaimed}>
               Close all
             </button>
           </div>
           <div className="stack">
-            {row.claimed.map((todo) => (
-              <MeetingTodo key={todo.id} todo={todo} busy={busy}
-                           onClose={() => patch(todo.id, { done: true })}
-                           onReject={() => patch(todo.id, { claimed: false })} />
+            {buckets.claimed.map((todo) => (
+              <MeetingTodo key={todo.id} todo={todo}
+                           busy={inFlight.has(`todo:${todo.id}:tick`)}
+                           onClose={() => close(todo)}
+                           onReject={() => reject(todo)} />
             ))}
           </div>
         </section>
@@ -533,15 +642,16 @@ function TurnCard({ row, date, meetingId, onChanged }: {
         <div className="panel-head">
           <h2 style={{ fontSize: "1rem" }}>Still open</h2>
           <span className="mono faint" style={{ fontSize: ".78rem" }}>
-            {row.pending.length}
+            {buckets.pending.length}
           </span>
         </div>
         <div className="stack">
-          {row.pending.map((todo) => (
-            <MeetingTodo key={todo.id} todo={todo} busy={busy}
-                         onClose={() => patch(todo.id, { done: true })} />
+          {buckets.pending.map((todo) => (
+            <MeetingTodo key={todo.id} todo={todo}
+                         busy={inFlight.has(`todo:${todo.id}:tick`)}
+                         onClose={() => close(todo)} />
           ))}
-          {row.pending.length === 0 && (
+          {buckets.pending.length === 0 && (
             <p className="faint" style={{ padding: "18px", fontSize: ".85rem" }}>
               Nothing open. Everything on the list has been dealt with.
             </p>
@@ -552,22 +662,23 @@ function TurnCard({ row, date, meetingId, onChanged }: {
                                              borderTop: "1px solid var(--line)" }}>
           <input className="field" value={draft} onChange={(e) => setDraft(e.target.value)}
                  placeholder={`Agree something new for ${row.user.display_name} today`} />
-          <button className="btn btn-primary btn-sm" disabled={busy || !draft.trim()}>
+          <button className="btn btn-primary btn-sm" disabled={!draft.trim()}>
             Add
           </button>
         </form>
       </section>
 
-      {row.done.length > 0 && (
+      {buckets.done.length > 0 && (
         <section className="panel" style={{ overflow: "hidden" }}>
           <div className="panel-head">
             <h2 style={{ fontSize: "1rem" }}>Closed today</h2>
-            <span className="mono faint" style={{ fontSize: ".78rem" }}>{row.done.length}</span>
+            <span className="mono faint" style={{ fontSize: ".78rem" }}>{buckets.done.length}</span>
           </div>
           <div className="stack">
-            {row.done.map((todo) => (
-              <MeetingTodo key={todo.id} todo={todo} busy={busy}
-                           onReopen={() => patch(todo.id, { done: false })} />
+            {buckets.done.map((todo) => (
+              <MeetingTodo key={todo.id} todo={todo}
+                           busy={inFlight.has(`todo:${todo.id}:tick`)}
+                           onReopen={() => setReopening(todo)} />
             ))}
           </div>
         </section>
@@ -596,7 +707,7 @@ function TurnCard({ row, date, meetingId, onChanged }: {
                     </span>
                   </span>
                 </span>
-                <button className="btn btn-sm" disabled={busy}
+                <button className="btn btn-sm"
                         onClick={() => addTodo(task.title, task.id)}>
                   Add to today
                 </button>
