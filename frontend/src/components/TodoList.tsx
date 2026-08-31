@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useActivity } from "./Activity";
 import { Confirm } from "./Confirm";
+import { IssuesDialog } from "./IssuesDialog";
 import { Thread, Tick } from "./ui";
 import { relativeDue } from "@/lib/format";
-import type { Task, Todo } from "@/lib/types";
+import type { Task, Todo, User } from "@/lib/types";
 
 /**
  * A day's list.
@@ -21,7 +22,7 @@ import type { Task, Todo } from "@/lib/types";
  * exact failure the two stages exist to prevent.
  */
 export function TodoList({
-  todos, suggestions, date, canAdd, canTick, title, userId,
+  todos, suggestions, date, canAdd, canTick, title, userId, people,
 }: {
   todos: Todo[];
   suggestions: Task[];
@@ -30,6 +31,8 @@ export function TodoList({
   canTick?: boolean;
   title: string;
   userId?: number;
+  /** Who an issue raised here can be handed to. Optional; empty is fine. */
+  people?: User[];
 }) {
   const { run, inFlight } = useActivity();
   const [draft, setDraft] = useState("");
@@ -47,6 +50,9 @@ export function TodoList({
   const [dropped, setDropped] = useState<number[]>([]);
   const [provisional, setProvisional] = useState<Todo[]>([]);
   const [undoing, setUndoing] = useState<Todo | null>(null);
+  // Which line's issues are open. Any line — a problem with work nobody planned
+  // is still a problem, and the plan screens cannot reach it.
+  const [issuesFor, setIssuesFor] = useState<Todo | null>(null);
 
   useEffect(() => {
     setPatched({});
@@ -120,6 +126,7 @@ export function TodoList({
       status: "open",
       is_done: false,
       is_stale: false,
+      open_issue_count: 0,
       carry_count: 0,
       source: "manual",
       task: null,
@@ -142,6 +149,11 @@ export function TodoList({
 
   return (
     <div className="stack gap-4">
+      {issuesFor && (
+        <IssuesDialog todo={issuesFor} members={people ?? []}
+                      onClose={() => setIssuesFor(null)} />
+      )}
+
       {undoing && (
         <Confirm
           title="Reopen this?"
@@ -207,6 +219,19 @@ export function TodoList({
                     )}
                   </span>
                 </span>
+
+                <button
+                  className="issue-flag"
+                  data-any={todo.open_issue_count > 0}
+                  onClick={() => setIssuesFor(todo)}
+                  title={todo.open_issue_count > 0
+                    ? `${todo.open_issue_count} open ${todo.open_issue_count === 1 ? "issue" : "issues"}`
+                    : "Log an issue against this"}
+                  aria-label={`Issues on ${todo.title}`}
+                >
+                  <Flag />
+                  {todo.open_issue_count > 0 && <span>{todo.open_issue_count}</span>}
+                </button>
 
                 {canTick && !closed && (
                   <button className="btn btn-ghost btn-sm" onClick={() => remove(todo)}
@@ -278,5 +303,15 @@ export function TodoList({
         </div>
       )}
     </div>
+  );
+}
+
+/** A small pennant. Reads as "something is flagged here", not as a warning. */
+function Flag() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M4 2v12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M4 3h7.2l-1.4 2.4L11.2 8H4z" fill="currentColor" opacity=".85" />
+    </svg>
   );
 }

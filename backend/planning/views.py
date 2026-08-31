@@ -49,6 +49,22 @@ def _tasks_with_issue_counts():
     )
 
 
+def _people_under(user):
+    """Whose personal work this person may look at: their own, plus their team's.
+
+    Same rule the daily screens use, expressed as a queryset so it can be joined
+    into an issue filter rather than checked per row.
+    """
+    from teams.models import TeamMembership
+
+    if not user.is_owner:
+        return User.objects.filter(pk=user.pk)
+    led = TeamMembership.objects.filter(
+        team__owner=user, left_on__isnull=True
+    ).values_list("user_id", flat=True)
+    return User.objects.filter(Q(pk=user.pk) | Q(pk__in=led))
+
+
 def _visible_projects(user):
     """Projects this person may see at all."""
     if user.is_owner:
@@ -262,23 +278,41 @@ class IssueViewSet(CachedListMixin, viewsets.ModelViewSet):
     cache_ttl_setting = "CACHE_TTL_PLAN"
 
     def get_queryset(self):
+        user = self.request.user
+        # Two ways an issue is visible, because there are two things it can hang
+        # off. One raised against planned work follows the project. One raised
+        # against a bare todo belongs to no project at all, and follows the
+        # person instead — you see your own, and an owner sees their team's.
+        on_a_project = Q(task__milestone__project__in=_visible_projects(user))
+        on_someones_day = Q(task__isnull=True) & (
+            Q(reported_by__in=_people_under(user))
+            | Q(todo__user__in=_people_under(user))
+            | Q(assignee=user)
+        )
         qs = (
-            Issue.objects.filter(
-                task__milestone__project__in=_visible_projects(self.request.user)
-            )
-            .select_related("task__milestone__project", "assignee", "reported_by")
+            Issue.objects.filter(on_a_project | on_someones_day)
+            .distinct()
+            .select_related("task__milestone__project", "todo",
+                            "assignee", "reported_by")
         )
         for param, field in (
             ("task", "task_id"),
+            ("todo", "todo_id"),
             ("project", "task__milestone__project_id"),
             ("milestone", "task__milestone_id"),
             ("assignee", "assignee_id"),
+            ("reported_by", "reported_by_id"),
             ("state", "state"),
             ("severity", "severity"),
         ):
             value = self.request.query_params.get(param)
             if value:
                 qs = qs.filter(**{field: value})
+        # "Not filed under any project" — the issues raised on somebody's own
+        # day, which have no project to filter by and would otherwise be
+        # reachable only by scrolling past everything that has one.
+        if self.request.query_params.get("unfiled") in ("1", "true"):
+            qs = qs.filter(task__isnull=True)
         return qs
 
     def _task_or_none(self, task_id):
@@ -290,14 +324,26 @@ class IssueViewSet(CachedListMixin, viewsets.ModelViewSet):
             .first()
         )
 
+    def _todo_or_none(self, todo_id):
+        from daily.models import Todo
+
+        return (
+            Todo.objects.filter(pk=todo_id, user__in=_people_under(self.request.user))
+            .select_related("task__milestone__project__repo", "user")
+            .first()
+        )
+
     def create(self, request, *args, **kwargs):
         form = IssueWriteSerializer(data=request.data)
         form.is_valid(raise_exception=True)
         data = form.validated_data
 
-        task = self._task_or_none(data["task"])
-        if task is None:
-            return Response({"detail": "No such task."}, status=status.HTTP_404_NOT_FOUND)
+        task = self._task_or_none(data["task"]) if data.get("task") else None
+        todo = self._todo_or_none(data["todo"]) if data.get("todo") else None
+        if task is None and todo is None:
+            return Response(
+                {"detail": "No such task or todo."}, status=status.HTTP_404_NOT_FOUND
+            )
 
         assignee = None
         if data.get("assignee_id"):
@@ -305,7 +351,8 @@ class IssueViewSet(CachedListMixin, viewsets.ModelViewSet):
 
         try:
             issue = log_issue(
-                task,
+                task=task,
+                todo=todo,
                 title=data["title"],
                 description=data.get("description", ""),
                 severity=data.get("severity") or Issue.Severity.MEDIUM,

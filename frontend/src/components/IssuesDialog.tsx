@@ -1,20 +1,24 @@
 "use client";
 
 /**
- * Issues raised against one task.
+ * Issues raised against one piece of work — a planned task, or a line on
+ * somebody's day.
  *
  * A task is work somebody planned. An issue is a problem found while doing it.
  * They are deliberately not the same list: if every defect became a task, a
  * milestone's progress would go backwards every time somebody found a bug,
  * which is exactly when you least want the plan to start lying.
  *
- * Where it gets filed depends on the task, and the panel says which. A task
- * that exists in GitLab gets a real GitLab issue, cross-referenced to the task
- * so it is findable from both ends. A task that only exists here — a project
- * with no repository, or a GitLab write that never landed — gets an issue held
- * here alone. Nothing else about it differs.
+ * The same dialog serves both subjects because from the person's side it is the
+ * same act. Opening it from a todo that points at planned work files against
+ * that work; opening it from a line somebody typed on their own day files
+ * against the line. Only the header changes.
  *
- * Loaded on open rather than with the plan. A task with forty defects against
+ * Where it gets filed depends on the task behind it, and the panel says which.
+ * A task in GitLab gets a real GitLab issue, cross-referenced so it is findable
+ * from both ends. Anything else — a local task, a bare todo — is held here.
+ *
+ * Loaded on open rather than with the page. A task with forty defects against
  * it should not make the board forty times heavier for everyone who never
  * clicks on it.
  */
@@ -24,7 +28,7 @@ import { useActivity } from "./Activity";
 import { Confirm } from "./Confirm";
 import { Modal } from "./Modal";
 import { Avatar } from "./ui";
-import type { Issue, Task, User } from "@/lib/types";
+import type { Issue, Task, Todo, User } from "@/lib/types";
 
 const SEVERITIES: { value: Issue["severity"]; label: string }[] = [
   { value: "low", label: "Low" },
@@ -33,11 +37,19 @@ const SEVERITIES: { value: Issue["severity"]; label: string }[] = [
   { value: "critical", label: "Critical" },
 ];
 
-export function TaskIssues({ task, members, onClose }: {
-  task: Task;
+export function IssuesDialog({ task, todo, members, onClose }: {
+  task?: Task;
+  todo?: Todo;
   members: User[];
   onClose: () => void;
 }) {
+  // A todo pointing at planned work is that work, as far as an issue is
+  // concerned. The person got here from their own list; the defect belongs to
+  // the task.
+  const subject = task ?? todo?.task ?? null;
+  const label = task?.title ?? todo?.title ?? "this";
+  const query = task ? `task=${task.id}` : `todo=${todo!.id}`;
+  const body = task ? { task: task.id } : { todo: todo!.id };
   const { run, refreshSoon } = useActivity();
   const [issues, setIssues] = useState<Issue[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -49,7 +61,7 @@ export function TaskIssues({ task, members, onClose }: {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/proxy/api/planning/issues/?task=${task.id}`, {
+      const res = await fetch(`/api/proxy/api/planning/issues/?${query}`, {
         cache: "no-store",
       });
       if (!res.ok) { setFailed(true); return; }
@@ -58,7 +70,7 @@ export function TaskIssues({ task, members, onClose }: {
     } catch {
       setFailed(true);
     }
-  }, [task.id]);
+  }, [query]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -72,9 +84,11 @@ export function TaskIssues({ task, members, onClose }: {
     // negative id cannot collide with a real one and is replaced on reload.
     setIssues((all) => [{
       id: -Date.now(),
-      task: task.id,
-      task_title: task.title,
-      task_gitlab_iid: task.gitlab_iid,
+      task: subject?.id ?? null,
+      task_title: subject?.title ?? null,
+      task_gitlab_iid: subject?.gitlab_iid ?? null,
+      todo: todo?.id ?? null,
+      raised_against: label,
       title: text,
       description,
       severity,
@@ -87,10 +101,10 @@ export function TaskIssues({ task, members, onClose }: {
       is_linked: false,
       is_in_gitlab: false,
       is_open: true,
-      project_id: task.project_id,
-      project_name: task.project_name,
-      milestone_id: task.milestone,
-      milestone_title: task.milestone_title,
+      project_id: subject?.project_id ?? null,
+      project_name: subject?.project_name ?? null,
+      milestone_id: subject?.milestone ?? null,
+      milestone_title: subject?.milestone_title ?? null,
       closed_at: null,
       created_at: new Date().toISOString(),
     }, ...(all ?? [])]);
@@ -101,20 +115,20 @@ export function TaskIssues({ task, members, onClose }: {
     setAssigneeId("");
 
     run({
-      key: `issue:new:${task.id}:${text}`,
+      key: `issue:new:${task ? `task:${task.id}` : `todo:${todo!.id}`}:${text}`,
       pending: "Logging the issue",
-      done: task.gitlab_iid ? `Logged “${text}” in GitLab` : `Logged “${text}”`,
-      failed: `Could not log “${text}” against “${task.title}”`,
+      done: subject?.gitlab_iid ? `Logged “${text}” in GitLab` : `Logged “${text}”`,
+      failed: `Could not log “${text}” against “${label}”`,
       method: "POST",
       path: "/api/planning/issues/",
       body: {
-        task: task.id,
+        ...body,
         title: text,
         description,
         severity,
         assignee_id: assigneeId ? Number(assigneeId) : null,
       },
-      targetUrl: `/projects/${task.project_id}`,
+      targetUrl: "/issues",
       quiet: true,
       // The plan shows a count per task, so the board behind this dialog is now
       // wrong too — but only once the server has actually taken it.
@@ -147,7 +161,7 @@ export function TaskIssues({ task, members, onClose }: {
   const resolved = (issues ?? []).filter((i) => i.state === "closed");
 
   return (
-    <Modal label={`Issues on ${task.title}`} onClose={onClose}>
+    <Modal label={`Issues on ${label}`} onClose={onClose}>
       {reopening && (
         <Confirm
           title="Reopen this issue?"
@@ -168,15 +182,19 @@ export function TaskIssues({ task, members, onClose }: {
       >
         <div className="stack gap-1">
           <span className="eyebrow">Issues</span>
-          <h2 style={{ fontSize: "1.1rem" }}>{task.title}</h2>
+          <h2 style={{ fontSize: "1.1rem" }}>{label}</h2>
           <p className="faint" style={{ fontSize: ".8rem", lineHeight: 1.55 }}>
-            {task.gitlab_iid
+            {subject?.gitlab_iid
               ? <>Anything logged here is filed in GitLab as a real issue and
-                  cross-referenced to <span className="mono">#{task.gitlab_iid}</span>,
+                  cross-referenced to <span className="mono">#{subject.gitlab_iid}</span>,
                   so it is findable from both sides.</>
-              : <>This task does not exist in GitLab, so issues against it are
-                  kept here. Nothing is lost — they behave the same everywhere
-                  else in the app.</>}
+              : subject
+                ? <>This task does not exist in GitLab, so issues against it are
+                    kept here. Nothing is lost — they behave the same everywhere
+                    else in the app.</>
+                : <>This is a line on a day rather than planned work, so there is
+                    nothing in GitLab to file against. The issue is kept here and
+                    shows up in Issues like any other.</>}
           </p>
         </div>
 

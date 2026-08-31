@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useActivity } from "./Activity";
 import { Confirm } from "./Confirm";
-import { TaskIssues } from "./TaskIssues";
+import { IssuesDialog } from "./IssuesDialog";
 import { Avatar, Meter, Tick } from "./ui";
 import { dueSoon, relativeDue, shortDate } from "@/lib/format";
 import type { Milestone, Task, User } from "@/lib/types";
@@ -355,8 +355,8 @@ function MilestoneDetail({
       </div>
 
       {issuesFor && (
-        <TaskIssues task={issuesFor} members={members}
-                    onClose={() => setIssuesFor(null)} />
+        <IssuesDialog task={issuesFor} members={members}
+                      onClose={() => setIssuesFor(null)} />
       )}
 
       <div className="stack">

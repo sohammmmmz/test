@@ -524,11 +524,30 @@ milestone's progress would go backwards every time somebody found a bug, which
 is precisely when you least want the plan to start lying.
 
 Every task carries a flag — faint until something is open against it, then
-filled with a count. Anyone who can see the project can log one, which is the
-point: the person who finds a defect is almost never the person who planned the
-work, and a tool that makes them ask someone else to file it is a tool where
-defects do not get filed. Resolving is narrower — the owner, the assignee, or
-whoever raised it.
+filled with a count — and **so does every line on a day**. Anyone who can see
+the work can log one, which is the point: the person who finds a defect is
+almost never the person who planned it, and a tool that makes them ask someone
+else to file it is a tool where defects do not get filed. Resolving is narrower
+— the owner, the assignee, or whoever raised it.
+
+**An issue needs a task or a todo, not both.** Most defects are found while
+doing planned work and point at a task. But plenty of work is a line somebody
+wrote on their own day that was never part of any milestone, and those had
+nowhere to go: a todo pointing at planned work resolves to that task, and a bare
+one is recorded on its own, belonging to no milestone and no project.
+
+`raised_against` is a snapshot of what it was logged against, written once at
+creation. `Issue.todo` is `SET_NULL`, so clearing a line off your day never
+deletes a bug report filed against it — and the report still says what it was
+about. That is also why the check constraint guards the *text* and not the
+links: requiring a task or a todo looked equivalent and made deleting such a
+todo fail outright with an integrity error.
+
+**Seeing all of them.** `/issues` is the whole pile — grouped by project with
+**Not on a project** last, filtered by state, severity and project. The per-task
+dialog is where a problem is *recorded*, next to the work, at the moment it is
+found; the Issues tab is where the pile is *worked*. They want opposite shapes,
+which is why they are two screens.
 
 **Where it is filed depends on the task.** A task that exists in GitLab gets a
 real GitLab issue (`issue_type=issue`, not `task`). A task that only exists here

@@ -11,6 +11,7 @@ const OWNER_NAV = [
   { href: "/", label: "Today", hint: "Everything at a glance" },
   { href: "/projects", label: "Projects", hint: "Repositories and plans" },
   { href: "/team", label: "Team", hint: "People and their days" },
+  { href: "/issues", label: "Issues", hint: "What is wrong, everywhere" },
   { href: "/morning", label: "Morning meeting", hint: "Run the round" },
   { href: "/reports", label: "Reports", hint: "Daily and weekly, as Excel" },
   { href: "/my-day", label: "My day", hint: "Your own list" },
@@ -23,6 +24,7 @@ const OWNER_NAV = [
 const MEMBER_NAV = [
   { href: "/my-day", label: "My day", hint: "Today's list" },
   { href: "/projects", label: "Projects", hint: "Your plans and issues" },
+  { href: "/issues", label: "Issues", hint: "What you have raised" },
 ];
 
 export function Rail({ user }: { user: User }) {

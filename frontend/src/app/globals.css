@@ -1607,3 +1607,25 @@ table.data tbody tr:hover { background: var(--sunk); }
 .pill[data-severity="medium"]   { color: var(--brand); background: var(--brand-wash); }
 .pill[data-severity="high"]     { color: var(--attention); background: var(--attention-wash); }
 .pill[data-severity="critical"] { color: var(--overdue); background: var(--overdue-wash); }
+
+/* A filter chip. Reads as a setting rather than a button — flat until it is the
+   one in force, which is the only state worth colour. */
+.filter-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: .74rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.filter-chip:hover { border-color: var(--line-firm); color: var(--ink); }
+.filter-chip[data-active="true"] {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}

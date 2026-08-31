@@ -173,6 +173,47 @@ def ensure_day(user, day: date) -> list[Todo]:
     return list(Todo.objects.filter(user=user, date=day).select_related("task"))
 
 
+def attach_issue_counts(todos) -> None:
+    """Hang each todo's open-issue count on it, in one query for the lot.
+
+    An issue can be raised against the todo itself or against the planned task
+    behind it, and both belong on the line — from the person's point of view it
+    is one piece of work with one set of problems. Counted with ``distinct`` so
+    an issue carrying both does not appear twice.
+
+    Set on the instances rather than fetched by the serializer, because the
+    serializer would ask once per row and a day is ten or twenty rows.
+    """
+    from django.db.models import Count, Q
+
+    from planning.models import Issue
+
+    todos = [t for t in todos if t.pk]
+    if not todos:
+        return
+    for todo in todos:
+        todo.open_issue_count = 0
+
+    ids = [t.pk for t in todos]
+    task_ids = {t.task_id for t in todos if t.task_id}
+
+    counts: dict[int, int] = {}
+    for row in (
+        Issue.objects.filter(state=Issue.State.OPEN)
+        .filter(Q(todo_id__in=ids) | Q(task_id__in=task_ids))
+        .values("id", "todo_id", "task_id")
+    ):
+        for todo in todos:
+            if row["todo_id"] == todo.pk or (
+                todo.task_id and row["task_id"] == todo.task_id
+            ):
+                counts[todo.pk] = counts.get(todo.pk, 0) + 1
+                break
+
+    for todo in todos:
+        todo.open_issue_count = counts.get(todo.pk, 0)
+
+
 def suggestions_for(user, day: date, *, limit: int = 8) -> list[Task]:
     """Open GitLab tasks worth putting on this person's list today.
 
@@ -204,6 +245,7 @@ def models_ordering_due_first():
 def day_view(user, day: date) -> dict:
     """Everything one person's day is made of."""
     todos = ensure_day(user, day)
+    attach_issue_counts(todos)
     suggestions = suggestions_for(user, day)
     open_tasks = (
         Task.objects.filter(assignee=user, state=Task.State.OPEN)
@@ -312,6 +354,7 @@ def meeting_board(team, day: date, owner) -> dict:
 
     people = team_members(team)
     days = ensure_days(people, day)
+    attach_issue_counts([t for rows in days.values() for t in rows])
 
     rows = []
     for user in people:

@@ -139,19 +139,30 @@ class Task(models.Model):
 
 
 class Issue(models.Model):
-    """Something wrong, raised against a task.
+    """Something wrong, raised against a piece of work.
 
     A task is work somebody planned; an issue is a problem found while doing it.
     Keeping them apart matters because the plan should not silently grow every
     time a bug is found — the milestone's progress is about the work, and a
     defect logged against it is a different question.
 
-    **Where it lives depends on the task.** If the task exists in GitLab, the
-    issue is filed there too, as a real GitLab issue (``issue_type=issue``, not
-    ``task``), so the people working in GitLab see it without being told. If the
-    task is local — no repository, or a GitLab write that never landed — the
-    issue is held here alone. Either way it is the same row and the same screen;
-    ``is_in_gitlab`` is the only difference anybody sees.
+    **It can hang off either a task or a todo, and needs only one of them.**
+    Most defects are found while doing planned work, and those point at a task.
+    But plenty of work is a line somebody wrote on their own day that was never
+    part of any milestone, and refusing to record a problem with it — because
+    the thing it concerns is not in the plan — is how a defect ends up in a
+    message to somebody instead of in the system.
+
+    ``raised_against`` is a snapshot of what it was logged against, written once
+    at creation. A todo is deleted routinely, and an issue whose anchor has gone
+    should still say what it was about rather than become an orphan nobody can
+    interpret.
+
+    **Where it is filed depends on the task.** A task that exists in GitLab gets
+    a real GitLab issue (``issue_type=issue``, not ``task``), so the people
+    working in GitLab see it without being told. Anything else — a local task, a
+    bare todo — is held here alone. Same row, same screen; ``is_in_gitlab`` is
+    the only difference anybody sees.
     """
 
     class State(models.TextChoices):
@@ -164,7 +175,24 @@ class Issue(models.Model):
         HIGH = "high", "High"
         CRITICAL = "critical", "Critical"
 
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="issues")
+    # One of these two is always set. Both can be, when the todo points at a
+    # planned task — then the task is what matters and the todo is just how the
+    # person got here.
+    task = models.ForeignKey(
+        Task, null=True, blank=True, on_delete=models.CASCADE, related_name="issues"
+    )
+    # SET_NULL, not CASCADE: ticking a line off your day and clearing it should
+    # never quietly delete a bug report somebody filed against it.
+    todo = models.ForeignKey(
+        "daily.Todo", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="issues",
+    )
+    # What it was raised against, in words, fixed at the moment it was raised.
+    # Never blank in practice — the service always writes it and a constraint
+    # enforces it — because it is what the issue still means once the task or
+    # todo it points at has been deleted. The column default exists only so the
+    # migration that adds it has something to put in the rows already there.
+    raised_against = models.CharField(max_length=512, default="")
 
     title = models.CharField(max_length=512)
     description = models.TextField(blank=True)
@@ -201,7 +229,23 @@ class Issue(models.Model):
         ordering = ["state", "-created_at"]
         indexes = [
             models.Index(fields=["task", "state"]),
+            models.Index(fields=["todo", "state"]),
             models.Index(fields=["assignee", "state"]),
+            models.Index(fields=["reported_by", "state"]),
+        ]
+        constraints = [
+            # The invariant is that an issue always says what it was about —
+            # not that the thing it was about still exists. Requiring a task or
+            # a todo looked equivalent and was not: a todo is deleted routinely,
+            # ``todo`` is SET_NULL so the report survives it, and an issue on a
+            # bare todo would then have neither. That made deleting such a todo
+            # fail outright with an integrity error. ``raised_against`` is
+            # written once at creation and never cleared, so it is the thing
+            # worth guaranteeing.
+            models.CheckConstraint(
+                condition=~models.Q(raised_against=""),
+                name="issue_says_what_it_is_about",
+            ),
         ]
 
     def __str__(self):
@@ -216,5 +260,15 @@ class Issue(models.Model):
         return self.state == self.State.OPEN
 
     @property
-    def project_id(self) -> int:
-        return self.task.milestone.project_id
+    def project(self):
+        """The project this belongs to, or None for an issue on a bare todo.
+
+        A todo that points at a task reaches a project through it. A todo
+        somebody typed on their own day belongs to nothing, and saying so is
+        more honest than inventing a home for it.
+        """
+        if self.task_id and self.task:
+            return self.task.milestone.project
+        if self.todo_id and self.todo and self.todo.task:
+            return self.todo.task.milestone.project
+        return None

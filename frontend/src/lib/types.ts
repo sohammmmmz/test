@@ -148,9 +148,15 @@ export type Task = {
  */
 export type Issue = {
   id: number;
-  task: number;
-  task_title: string;
+  // One of these two is set. An issue on a bare todo — a line somebody wrote on
+  // their own day that was never part of a plan — has no task, and therefore no
+  // milestone and no project either.
+  task: number | null;
+  task_title: string | null;
   task_gitlab_iid: number | null;
+  todo: number | null;
+  /** What it was raised against, in words, fixed when it was raised. */
+  raised_against: string;
   title: string;
   description: string;
   severity: "low" | "medium" | "high" | "critical";
@@ -163,10 +169,10 @@ export type Issue = {
   is_linked: boolean;
   is_in_gitlab: boolean;
   is_open: boolean;
-  project_id: number;
-  project_name: string;
-  milestone_id: number;
-  milestone_title: string;
+  project_id: number | null;
+  project_name: string | null;
+  milestone_id: number | null;
+  milestone_title: string | null;
   closed_at: string | null;
   created_at: string;
 };
@@ -208,6 +214,8 @@ export type Todo = {
   closed_by_name: string | null;
   is_stale: boolean;
   age_days: number;
+  /** Open issues against this line, or against the task behind it. */
+  open_issue_count: number;
   carry_count: number;
   first_added_on: string | null;
   created_at: string;

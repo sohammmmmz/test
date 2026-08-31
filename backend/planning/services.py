@@ -258,24 +258,35 @@ def _cross_reference(task: Task) -> str:
     return f"\n\n---\nRaised against #{task.gitlab_iid} · logged from Morning Ledger."
 
 
-def log_issue(task: Task, *, title: str, description: str = "",
-              severity: str = Issue.Severity.MEDIUM, reported_by=None,
-              assignee=None) -> Issue:
-    """Record something wrong with this task.
+def log_issue(*, task: Task | None = None, todo=None, title: str,
+              description: str = "", severity: str = Issue.Severity.MEDIUM,
+              reported_by=None, assignee=None) -> Issue:
+    """Record something wrong, against a task or against a line on somebody's day.
 
-    Filed in GitLab when the task lives there, and here alone when it does not —
-    a task on a project with no repository, or one whose own GitLab write never
-    landed. The row is identical either way; only ``is_in_gitlab`` differs.
+    One of ``task`` or ``todo`` is required. A todo that points at a planned task
+    is treated as that task — the person got here from their own list, but the
+    defect belongs to the work. A todo that points at nothing is recorded on its
+    own; a problem with work nobody planned is still a problem, and having
+    nowhere to put it is how it ends up in a message to somebody instead.
 
-    When GitLab is meant to have it and refuses, this raises rather than quietly
-    keeping a local copy. Falling back would leave two records of the same
-    defect disagreeing about whether it exists, and the caller has somewhere
-    better to put the failure: the browser holds the request and offers to send
+    Filed in GitLab when there is a task there to file it against, and here alone
+    otherwise. When GitLab is meant to have it and refuses, this raises rather
+    than quietly keeping a local copy: falling back would leave two records of
+    one defect disagreeing about whether it exists, and the caller has somewhere
+    better to put the failure — the browser holds the request and offers to send
     it again.
     """
-    project = task.milestone.project
-    repo = getattr(project, "repo", None)
-    upstream = repo is not None and task.gitlab_iid is not None
+    if task is None and todo is None:
+        raise PlanningError("An issue has to be raised against something.")
+
+    # A todo pointing at planned work resolves to that work.
+    if task is None and todo is not None:
+        task = todo.task
+
+    subject = task.title if task is not None else todo.title
+    project = task.milestone.project if task is not None else None
+    repo = getattr(project, "repo", None) if project is not None else None
+    upstream = repo is not None and task is not None and task.gitlab_iid is not None
 
     payload: dict = {}
     linked = False
@@ -313,6 +324,8 @@ def log_issue(task: Task, *, title: str, description: str = "",
 
     return Issue.objects.create(
         task=task,
+        todo=todo,
+        raised_against=subject[:512],
         title=title,
         description=description or "",
         severity=severity,
@@ -328,7 +341,8 @@ def log_issue(task: Task, *, title: str, description: str = "",
 
 def update_issue(issue: Issue, **fields) -> Issue:
     """Edit or resolve an issue, upstream first where there is an upstream."""
-    repo = getattr(issue.task.milestone.project, "repo", None)
+    project = issue.project
+    repo = getattr(project, "repo", None) if project is not None else None
 
     if issue.is_in_gitlab and repo is not None:
         client = _client()
@@ -336,7 +350,12 @@ def update_issue(issue: Issue, **fields) -> Issue:
         if "title" in fields:
             upstream["title"] = fields["title"]
         if "description" in fields:
-            upstream["description"] = (fields["description"] or "") + _cross_reference(issue.task)
+            # Only an issue that reached GitLab is being edited here, and that
+            # only happens when it has a task, so the reference is always there
+            # to re-append.
+            upstream["description"] = (
+                (fields["description"] or "") + _cross_reference(issue.task)
+            )
         if "assignee" in fields:
             upstream["assignee_id"] = (
                 fields["assignee"].gitlab_user_id if fields["assignee"] else 0

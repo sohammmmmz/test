@@ -18,13 +18,34 @@ class TodoSerializer(serializers.ModelSerializer):
     closed_by_name = serializers.CharField(
         source="closed_by.display_name", read_only=True, default=None
     )
+    open_issue_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Todo
         fields = ["id", "user", "user_name", "date", "title", "notes", "task",
                   "source", "status", "is_done", "done_at", "closed_by_name",
-                  "is_stale", "age_days",
+                  "is_stale", "age_days", "open_issue_count",
                   "carry_count", "first_added_on", "created_at"]
+
+    def get_open_issue_count(self, todo) -> int:
+        """Counted in bulk by ``attach_issue_counts`` wherever a list is built.
+
+        The fallback is a query per row, which is why it is a fallback: it is
+        here so a screen that forgets to call the bulk helper is *slow* rather
+        than silently reporting zero problems on work that has them.
+        """
+        counted = getattr(todo, "open_issue_count", None)
+        if counted is not None:
+            return counted
+
+        from django.db.models import Q
+
+        from planning.models import Issue
+
+        subject = Q(todo_id=todo.pk)
+        if todo.task_id:
+            subject |= Q(task_id=todo.task_id)
+        return Issue.objects.filter(subject, state=Issue.State.OPEN).distinct().count()
 
 
 class TodoWriteSerializer(serializers.Serializer):

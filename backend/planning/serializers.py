@@ -38,30 +38,58 @@ class IssueSerializer(serializers.ModelSerializer):
     is_in_gitlab = serializers.BooleanField(read_only=True)
     is_open = serializers.BooleanField(read_only=True)
     severity_display = serializers.CharField(source="get_severity_display", read_only=True)
-    task_title = serializers.CharField(source="task.title", read_only=True)
-    task_gitlab_iid = serializers.IntegerField(source="task.gitlab_iid", read_only=True)
-    project_id = serializers.IntegerField(source="task.milestone.project_id", read_only=True)
-    project_name = serializers.CharField(source="task.milestone.project.name", read_only=True)
-    milestone_id = serializers.IntegerField(source="task.milestone_id", read_only=True)
-    milestone_title = serializers.CharField(source="task.milestone.title", read_only=True)
+    task_title = serializers.CharField(source="task.title", read_only=True, default=None)
+    task_gitlab_iid = serializers.IntegerField(
+        source="task.gitlab_iid", read_only=True, default=None
+    )
+    # All four can be null: an issue raised against a bare todo belongs to no
+    # milestone and no project, and pretending otherwise would put it under
+    # whichever project happened to be handy.
+    project_id = serializers.SerializerMethodField()
+    project_name = serializers.SerializerMethodField()
+    milestone_id = serializers.IntegerField(
+        source="task.milestone_id", read_only=True, default=None
+    )
+    milestone_title = serializers.CharField(
+        source="task.milestone.title", read_only=True, default=None
+    )
 
     class Meta:
         model = Issue
-        fields = ["id", "task", "task_title", "task_gitlab_iid", "title", "description",
+        fields = ["id", "task", "task_title", "task_gitlab_iid", "todo",
+                  "raised_against", "title", "description",
                   "severity", "severity_display", "state", "reported_by", "assignee",
                   "gitlab_iid", "web_url", "is_linked", "is_in_gitlab", "is_open",
                   "project_id", "project_name", "milestone_id", "milestone_title",
                   "closed_at", "created_at"]
 
+    def get_project_id(self, issue):
+        project = issue.project
+        return project.id if project else None
+
+    def get_project_name(self, issue):
+        project = issue.project
+        return project.name if project else None
+
 
 class IssueWriteSerializer(serializers.Serializer):
-    task = serializers.IntegerField()
+    """One of ``task`` or ``todo``, and the view checks that at least one came."""
+
+    task = serializers.IntegerField(required=False, allow_null=True)
+    todo = serializers.IntegerField(required=False, allow_null=True)
     title = serializers.CharField(max_length=512)
     description = serializers.CharField(required=False, allow_blank=True, default="")
     severity = serializers.ChoiceField(
         choices=Issue.Severity.choices, required=False, default=Issue.Severity.MEDIUM
     )
     assignee_id = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate(self, data):
+        if not data.get("task") and not data.get("todo"):
+            raise serializers.ValidationError(
+                "An issue has to be raised against a task or a todo."
+            )
+        return data
 
 
 class IssueUpdateSerializer(serializers.Serializer):
